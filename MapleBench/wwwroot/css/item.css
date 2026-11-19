@@ -80,17 +80,19 @@
 
 .item-row {
   display: grid;
-  grid-template-columns: 28px 52px minmax(92px, 0.5fr) minmax(160px, 1.4fr) minmax(70px, 0.5fr) minmax(56px, 0.4fr) 28px;
+  /* 20261117pan修改: 10 列逐行布局 — 勾选/图标/ID/名称/分类/系列/价格/堆叠/标记/操作 */
+  grid-template-columns: 24px 40px minmax(84px, 0.7fr) minmax(140px, 1.6fr) minmax(60px, 0.5fr) minmax(50px, 0.4fr) minmax(64px, 0.5fr) minmax(56px, 0.45fr) minmax(52px, 0.4fr) 64px;
   align-items: center;
   gap: var(--sp-2);
   width: 100%;
-  padding: var(--sp-2) var(--sp-3);
+  padding: 4px var(--sp-3);
+  min-height: 48px;
   background: none; border: 1px solid transparent; border-radius: var(--r-lg);
   color: var(--text-1); font-size: var(--fs-13); text-align: left;
   cursor: pointer;
 }
 .item-row:hover { background: var(--bg-hover); }
-.item-row-selected { background: var(--bg-active); border-color: var(--border-focus); }
+.item-row[data-selected="true"] { background: var(--bg-active); border-color: var(--border-focus); }
 
 .item-row-head {
   cursor: default; color: var(--text-3); font-size: var(--fs-11); text-transform: uppercase;
@@ -101,13 +103,23 @@
 
 .item-col { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .item-col-check { display: flex; align-items: center; }
-.item-col-check input { accent-color: var(--coral-ink); }
+.item-col-check input { accent-color: var(--coral-fill); width: 16px; height: 16px; cursor: pointer; }
+.item-col-thumb { display: flex; align-items: center; }
 .item-col-id { font-variant-numeric: tabular-nums; color: var(--text-2); }
 .item-col-name { color: var(--text-1); }
+.item-row-title {
+  background: none; border: 0; padding: 0; font: inherit; color: var(--text-1);
+  font-weight: 600; max-width: 100%; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; cursor: pointer; text-align: left;
+}
+.item-row-title:hover { color: var(--coral-ink); }
 .item-col-cat { color: var(--text-2); }
 .item-col-part { color: var(--text-2); }
 .item-col-series { color: var(--text-3); font-variant-numeric: tabular-nums; }
-.item-col-flags { display: flex; gap: var(--sp-1); }
+.item-col-price, .item-col-slot { color: var(--text-2); font-variant-numeric: tabular-nums; }
+.item-col-flags { display: flex; gap: var(--sp-1); align-items: center; }
+.item-col-actions { display: flex; gap: 2px; justify-content: flex-end; }
+.item-col-actions .btn { padding: 2px 6px; }
 
 .item-thumb {
   width: 40px; height: 40px; object-fit: contain;

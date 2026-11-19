@@ -96,7 +96,7 @@ export class ItemSection {
     this.query = '';
     this.categoryFilter = '';
     this.dirtyOnly = false;
-    this.thumbRev = 0;
+    this.thumbRev = Date.now(); // 20261117pan修改: 跨进程变化，绕过 WebView2 持久缓存的旧图标
 
     this.capabilities = { available: false };
     this.items = [];
@@ -394,65 +394,76 @@ export class ItemSection {
           ? '调整筛选条件后再试。'
           : '存档已打开，但其中没有任何带 info 的物品图片。'));
     } else {
-      const grid = el('div', { class: 'mob-grid' });
-      for (const item of this.items) grid.append(this.buildCard(item));
-      panel.append(grid);
+      // 20261117pan修改: 卡片网格改为紧凑的逐行列表，一屏能看更多物品。
+      const list = el('div', { class: 'item-list' });
+      list.append(el('div', { class: 'item-row item-row-head' },
+        el('span', { class: 'item-col item-col-check' }),
+        el('span', { class: 'item-col item-col-thumb' }),
+        el('span', { class: 'item-col item-col-id', text: 'ID' }),
+        el('span', { class: 'item-col item-col-name', text: '名称' }),
+        el('span', { class: 'item-col item-col-cat', text: '分类' }),
+        el('span', { class: 'item-col item-col-series', text: '系列' }),
+        el('span', { class: 'item-col item-col-price', text: '价格' }),
+        el('span', { class: 'item-col item-col-slot', text: '堆叠' }),
+        el('span', { class: 'item-col item-col-flags' }),
+        el('span', { class: 'item-col item-col-actions' })));
+      for (const item of this.items) list.append(this.buildRow(item));
+      panel.append(list);
       if (pages > 1) panel.append(this.buildPager(pages));
     }
 
     this.resultHost.append(panel);
   }
 
-  buildCard(item) {
+  // 20261117pan修改: 由卡片网格改为逐行列表，功能（选择/图标/打开详情/
+  // 分类/脏标记/价格/堆叠/编辑/更多菜单）全部保留，仅换成紧凑的行布局。
+  buildRow(item) {
     const selected = this.selection.has(item.path);
-    const card = el('div', {
-      class: 'mob-card', 'data-path': item.path, 'data-selected': selected ? 'true' : 'false',
+    const row = el('div', {
+      class: 'item-row', 'data-path': item.path, 'data-selected': selected ? 'true' : 'false',
     });
 
     const box = el('input', {
       type: 'checkbox', checked: selected,
       'aria-label': `选择 ${item.name || `物品 ${item.itemId}`}`,
+      onclick: (event) => event.stopPropagation(),
     });
     box.addEventListener('change', () => {
       if (box.checked) this.selection.add(item.path); else this.selection.delete(item.path);
-      card.dataset.selected = box.checked ? 'true' : 'false';
+      row.dataset.selected = box.checked ? 'true' : 'false';
       this.refreshSelectionBar();
     });
 
     const thumb = item.icon
       ? el('img', {
-          class: 'mob-sprite-img', alt: '', loading: 'lazy',
+          class: 'item-thumb', alt: '', loading: 'lazy',
           src: `/api/thumb?path=${encodeURIComponent(item.icon)}&v=${this.thumbRev}`,
-          style: 'width:44px;height:44px;object-fit:contain;display:block',
           onerror: (event) => { event.target.style.visibility = 'hidden'; },
         })
-      : el('span', { class: 'mob-sprite', style: 'width:44px;height:44px' }, icon('box', { size: 16 }));
+      : el('span', { class: 'item-thumb item-thumb-empty' }, icon('box', { size: 16 }));
 
-    const badges = el('div', { class: 'mob-badges' },
-      el('span', { class: 'mob-badge', 'data-kind': 'undead', text: categoryLabel(item.category) }),
-      item.dirty ? el('span', { class: 'mob-badge', 'data-kind': 'dirty', text: '未保存' }) : null);
-
-    const stat = (key, value) => el('div', { class: 'mob-row' },
-      el('span', { class: 'k', text: key }),
-      el('span', { class: 'v', text: value }));
-
-    card.append(...[
-      el('div', { class: 'mob-card-head' },
-        el('label', { class: 'mob-pick' }, box),
-        el('div', { class: 'mob-sprite' }, thumb),
-        el('div', { class: 'mob-card-title' },
-          el('button', {
-            class: 'mob-title', text: item.name || `物品 ${item.itemId}`,
-            'data-tip': '打开此物品', onclick: (event) => this.openItemCard(item, event.currentTarget),
-          }),
-          el('div', { class: 'mob-sub', text: `ID ${item.itemId} · ${item.series}` }))),
-      badges.childElementCount ? badges : null,
-      item.price ? stat('价格', fmt.format(item.price)) : null,
-      item.slotMax ? stat('堆叠上限', fmt.format(item.slotMax)) : null,
-      el('div', { class: 'mob-actions' },
-        el('button', { class: 'btn btn-sm', style: 'flex:1',
-                       onclick: (event) => this.openItemCard(item, event.currentTarget) },
-          icon('edit', { size: 14 }), '编辑属性'),
+    row.append(...[
+      el('span', { class: 'item-col item-col-check' }, el('label', {}, box)),
+      el('span', { class: 'item-col item-col-thumb' }, thumb),
+      el('span', { class: 'item-col item-col-id', text: item.itemId }),
+      el('span', { class: 'item-col item-col-name' },
+        el('button', {
+          class: 'item-row-title', text: item.name || `物品 ${item.itemId}`,
+          'data-tip': '打开此物品',
+          onclick: (event) => { event.stopPropagation(); this.openItemCard(item, event.currentTarget); },
+        })),
+      el('span', { class: 'item-col item-col-cat' },
+        el('span', { class: 'item-flag', text: categoryLabel(item.category) })),
+      el('span', { class: 'item-col item-col-series', text: item.series }),
+      el('span', { class: 'item-col item-col-price', text: item.price ? fmt.format(item.price) : '—' }),
+      el('span', { class: 'item-col item-col-slot', text: item.slotMax ? fmt.format(item.slotMax) : '—' }),
+      el('span', { class: 'item-col item-col-flags' },
+        item.dirty ? el('span', { class: 'item-flag item-flag-dirty', text: '未保存' }) : null),
+      el('span', { class: 'item-col item-col-actions' },
+        el('button', {
+          class: 'btn btn-sm btn-icon', 'data-tip': '编辑属性',
+          onclick: (event) => { event.stopPropagation(); this.openItemCard(item, event.currentTarget); },
+        }, icon('edit', { size: 14 })),
         el('button', {
           class: 'btn btn-sm btn-icon', 'data-tip': '更多',
           onclick: (event) => {
@@ -463,7 +474,9 @@ export class ItemSection {
         }, icon('more', { size: 15 }))),
     ].filter(Boolean));
 
-    return card;
+    // 点击整行打开详情（复选框/按钮已各自 stopPropagation）
+    row.addEventListener('click', () => this.openItemCard(item, row));
+    return row;
   }
 
   menuItemsFor(item) {

@@ -93,6 +93,52 @@
 }
 .qst-detail-title { font-size: var(--fs-15); font-weight: 700; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+/* ---- 20261119pan修改 任务依赖链 ---- */
+.qst-chain-bar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2);
+  margin-top: var(--sp-2); padding: 6px 8px;
+  background: var(--field-bg, var(--panel)); border: 1px solid var(--border);
+  border-radius: var(--rad-sm, 6px);
+}
+.qst-chain-label {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: var(--fs-12); font-weight: 600; color: var(--text-2); white-space: nowrap; cursor: help;
+}
+.qst-chain-label .icon { color: var(--accent, #4c8dff); }
+.qst-chain-count { font-size: var(--fs-11); color: var(--text-3); white-space: nowrap; }
+.qst-chain-hint { font-size: var(--fs-12); color: var(--text-3); }
+.qst-chain-toggle {
+  margin-left: auto; background: none; border: 1px solid var(--border);
+  border-radius: var(--rad-sm, 6px); padding: 1px 7px;
+  font-size: var(--fs-11); color: var(--text-3); cursor: pointer;
+}
+.qst-chain-toggle:hover { color: var(--text-1); border-color: var(--border-focus); }
+.qst-chain-track {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 3px;
+  width: 100%; max-height: 168px; overflow: auto; padding: 2px 0;
+}
+.qst-chain-track.is-collapsed { max-height: 30px; overflow: hidden; }
+.qst-chain-arrow { color: var(--text-3); font-size: var(--fs-16); line-height: 1; padding: 0 1px; flex: none; cursor: help; }
+.qst-chain-arrow-back { color: #e0a458; }
+.qst-chain-node {
+  display: inline-flex; align-items: center; gap: 5px; flex: none;
+  max-width: 220px; padding: 2px 8px;
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: 999px; font-size: var(--fs-12); color: var(--text-2); cursor: pointer;
+}
+.qst-chain-node:hover { border-color: var(--border-focus); color: var(--text-1); }
+.qst-chain-node-id { font-family: var(--font-mono, monospace); font-weight: 700; opacity: 0.9; }
+.qst-chain-node-name {
+  max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.qst-chain-before .qst-chain-node-id { color: #e0873a; }
+.qst-chain-after .qst-chain-node-id { color: #4c8dff; }
+.qst-chain-node.is-current {
+  background: var(--accent, #4c8dff); border-color: var(--accent, #4c8dff);
+  color: #fff; cursor: default; font-weight: 600;
+}
+.qst-chain-node.is-current .qst-chain-node-id { color: #fff; }
+
 .qst-tabs { display: flex; gap: 2px; margin: var(--sp-2) 0; border-bottom: 1px solid var(--border); }
 .qst-tab {
   background: none; border: none; border-bottom: 2px solid transparent;
@@ -130,7 +176,10 @@
 .qst-check input { accent-color: var(--accent, #4c8dff); }
 
 /* ---- say ---- */
-.qst-say, .qst-act, .qst-check { display: flex; flex-direction: column; gap: var(--sp-4); }
+/* 20261116pan修改：这里的 qst-check 原指条件页主容器，但与复选框 label 的 .qst-check 同名，
+   导致 .qst-check 的纵向布局+16px gap 覆盖复选框的 inline-flex+5px gap（框与文字竖排、间距过大）。
+   主容器类已改为 qst-check-tab（见 quest.js buildCheckTab），此处同步。 */
+.qst-say, .qst-act, .qst-check-tab { display: flex; flex-direction: column; gap: var(--sp-4); }
 .qst-say-section, .qst-act-section, .qst-check-section { display: flex; flex-direction: column; gap: var(--sp-2); }
 .qst-section-title { font-size: var(--fs-13); font-weight: 700; color: var(--text-2); padding-bottom: 2px; border-bottom: 1px solid var(--border); margin-bottom: 2px; }
 
@@ -156,6 +205,11 @@
 .qst-reward-row { display: flex; gap: 4px; align-items: center; }
 .qst-reward-row input { flex: 1; min-width: 60px; }
 .qst-reward-row select { flex: 1; min-width: 80px; }
+/* 20261116pan修改：奖励物品列标签，与下方 input/select 宽度对齐（末尾留 32px 给删除按钮） */
+.qst-reward-head { display: flex; gap: 4px; align-items: center; margin-bottom: 2px; }
+.qst-reward-head > span { flex: 1; min-width: 60px; font-size: var(--fs-11); color: var(--text-3); cursor: help; }
+.qst-reward-head > span.qst-reward-head-sp { flex: none; width: 32px; min-width: 32px; }
+.qst-reward-legend { font-size: var(--fs-11); color: var(--text-3); line-height: 1.5; }
 .qst-skill-row { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
 .qst-skill-row input { flex: 1; min-width: 70px; }
 .qst-skill-row .qst-check { flex: 1; min-width: 90px; }

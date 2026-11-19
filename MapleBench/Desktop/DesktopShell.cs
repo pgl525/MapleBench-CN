@@ -101,9 +101,21 @@ public sealed class DesktopShell : Form
         System.Drawing.Icon? appIcon = null;
         try
         {
-            string iconPath = Path.Combine(AppContext.BaseDirectory, "MapleBench.ico");
-            if (File.Exists(iconPath))
-                Icon = appIcon = new System.Drawing.Icon(iconPath);
+            // 20261117pan修改: 单文件发布后 MapleBench.ico 不作为松散文件落地，
+            // 磁盘路径读不到；先试嵌入资源流，再回退磁盘（开发调试时用）。
+            var asm = typeof(DesktopShell).Assembly;
+            var stream = asm.GetManifestResourceStream("MapleBench.MapleBench.ico");
+            if (stream is not null)
+            {
+                using (stream)
+                    Icon = appIcon = new System.Drawing.Icon(stream);
+            }
+            else
+            {
+                string iconPath = Path.Combine(AppContext.BaseDirectory, "MapleBench.ico");
+                if (File.Exists(iconPath))
+                    Icon = appIcon = new System.Drawing.Icon(iconPath);
+            }
         }
         catch { /* the default icon is fine */ }
 

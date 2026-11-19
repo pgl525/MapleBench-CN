@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Net;
 using System.Net.Http;
 using System.Net.Sockets;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using MapleBench.Api;
@@ -16,6 +17,12 @@ public static class Program
 
     public static void Main(string[] args)
     {
+        // 20261117pan修改: 正常双击启动时不再弹出日志黑窗口（见 csproj 的
+        // WinExe）。排查问题时用 --console 显式要一个控制台；已经从终端
+        // 启动时 GetConsoleWindow 非零，不重复分配。
+        if (args.Contains("--console"))
+            AllocateConsoleIfNeeded();
+
         bool allowMultiple = args.Contains("--allow-multiple");
 
         // Read BEFORE anything is allowed to end another copy, and used by the
@@ -762,5 +769,23 @@ public static class Program
         {
             Console.WriteLine($"  (Could not open a browser automatically: {ex.Message})");
         }
+    }
+
+    // 20261117pan修改: WinExe 不会自动获得控制台；--console 时补一个，
+    // 方便查看请求日志和启动失败信息。
+    [DllImport("kernel32.dll")]
+    private static extern IntPtr GetConsoleWindow();
+
+    [DllImport("kernel32.dll")]
+    private static extern bool AllocConsole();
+
+    private static void AllocateConsoleIfNeeded()
+    {
+        try
+        {
+            if (GetConsoleWindow() == IntPtr.Zero)
+                AllocConsole();
+        }
+        catch { /* no console is better than failing to start */ }
     }
 }

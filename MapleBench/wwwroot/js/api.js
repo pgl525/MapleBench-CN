@@ -285,6 +285,8 @@ export const api = {
   questList: (fileId, offset, limit) =>
     get(`/api/quest/list?${fileId ? `fileId=${q(fileId)}&` : ''}${offset != null ? `offset=${offset}&limit=${limit ?? 200}` : ''}`),
   questDetail: (path) => get(`/api/quest/detail?path=${q(path)}`),
+  // 20261119pan修改 任务依赖链：前置→当前→后续
+  questChain: (path) => get(`/api/quest/chain?path=${q(path)}`),
   questSave: (payload) => post('/api/quest/save', payload),
 
   /* ---------- items ---------- */

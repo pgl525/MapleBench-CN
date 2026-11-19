@@ -11,6 +11,8 @@ export const el = (tag, attrs = {}, ...children) => {
     if (key === 'class') node.className = value;
     else if (key === 'text') node.textContent = value;
     else if (key === 'html') node.innerHTML = value;
+    // 20261116pan修改：textarea 的初始值必须写入 .value，setAttribute('value') 对 textarea 无效，会导致对话文本显示为空
+    else if (key === 'value' && tag.toLowerCase() === 'textarea') node.value = value;
     else if (key.startsWith('on')) node.addEventListener(key.slice(2).toLowerCase(), value);
     else node.setAttribute(key, value === true ? '' : value);
   }

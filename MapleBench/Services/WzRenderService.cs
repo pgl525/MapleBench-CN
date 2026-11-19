@@ -129,8 +129,13 @@ public sealed class WzRenderService
             if (_pngCache.Count >= MaxCacheEntries || _pngCacheBytes >= MaxCacheBytes)
                 ResetCache(generation);
 
-            if (_pngCache.TryAdd(key, png))
-                _pngCacheBytes += png?.Length ?? 0;
+            // 20261117pan修改: 不缓存 miss(null)。此前把"无图"结论永久写进缓存,
+            // 一次偶发的首次解码失败(并发/时序)会让某个本应有图的节点(如 04000004)
+            // 一直返回 204, 界面显示空白且刷新无效, 只有重开文件/重启才恢复。
+            // 浏览器端 /api/thumb 有 max-age 缓存且 media.js 对 URL 去重, 真无图的
+            // 行不会在同一会话反复打到服务端, 因此不缓存 miss 的性能代价极小。
+            if (png != null && _pngCache.TryAdd(key, png))
+                _pngCacheBytes += png.Length;
         }
         return png;
     }

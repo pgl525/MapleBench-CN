@@ -93,7 +93,7 @@ export class EquipmentSection {
     this.query = '';
     this.partFilter = '';
     this.dirtyOnly = false;
-    this.thumbRev = 0;
+    this.thumbRev = Date.now(); // 20261117pan修改: 跨进程变化，绕过 WebView2 持久缓存的旧图标
 
     this.capabilities = { available: false };
     this.items = [];

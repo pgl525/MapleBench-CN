@@ -43,6 +43,10 @@ public static class QuestEndpoints
         api.MapGet("/quest/detail", (string path, QuestService quests) =>
             Results.Ok(quests.Detail(path)));
 
+        // 20261119pan修改：任务链——从当前任务回溯前置、顺推后续，返回整条依赖链。
+        api.MapGet("/quest/chain", (string path, QuestService quests) =>
+            Results.Ok(quests.Chain(path)));
+
         api.MapPost("/quest/save", (QuestSaveRequest request, QuestService quests) =>
             Results.Ok(quests.Save(request)));
     }

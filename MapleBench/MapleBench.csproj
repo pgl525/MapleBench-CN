@@ -2,7 +2,15 @@
 
   <PropertyGroup>
     <TargetFramework>net10.0-windows</TargetFramework>
-    <OutputType>Exe</OutputType>
+    <!-- 20261117pan修改: WinExe 使用 Windows GUI 子系统，双击启动时不再附带
+         黑色的 ASP.NET Core 日志控制台；需要排查时可用 console 启动参数显式分配。 -->
+    <OutputType>WinExe</OutputType>
+
+    <!-- 20261119pan修改: 本程序是 WinForms + WebView2 桌面壳，虽然内部用
+         WebApplication 提供本地静态资源，但不部署到 IIS。Web SDK 默认会为
+         AspNetCore 项目生成 IIS 用的 web.config，关闭它，避免发布目录多出
+         一个既用不到又会误导的配置文件。 -->
+    <PublishIISAssets>false</PublishIISAssets>
     <Nullable>annotations</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
@@ -32,6 +40,9 @@
 
   <ItemGroup>
     <Content Include="MapleBench.ico" CopyToOutputDirectory="PreserveNewest" />
+    <!-- 20261117pan修改: 单文件发布后 ico 会被清理，运行时从磁盘读不到；
+         嵌入程序集后 DesktopShell 可从资源流加载，任务栏/标题栏才有图标。 -->
+    <EmbeddedResource Include="MapleBench.ico" LogicalName="MapleBench.MapleBench.ico" />
   </ItemGroup>
 
   <ItemGroup>

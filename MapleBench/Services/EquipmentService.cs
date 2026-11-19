@@ -135,6 +135,27 @@ public sealed class EquipmentService
             generation = _session.Generation;
             foreach (OpenFile file in EquipmentArchives(fileId))
             {
+                // 20261117pan修改：单个 loose 装备 img（如 Character/Cap/01000000.img）没有
+                // Character 角色目录，RoleRoot 返回 null 会跳过整个文件，导致装备列表恒为 0。
+                // Mob/Npc/Skill 早已显式处理 loose 图片，这里补齐：part 取父目录名（Cap/Cape…
+                // 正好是 PartNames 的键），path 用 file.Id，与详情/字段编辑路径规则一致。
+                if (file.LooseImage != null)
+                {
+                    WzImage loose = file.LooseImage;
+                    string part = "Accessory";
+                    try
+                    {
+                        string? parent = Directory.GetParent(file.FilePath)?.Name;
+                        if (!string.IsNullOrEmpty(parent) && PartNames.ContainsKey(parent))
+                            part = parent;
+                    }
+                    catch { /* keep a valid PartNames key if the path cannot be inspected */ }
+                    string id = Path.GetFileNameWithoutExtension(loose.Name);
+                    if (id.Length > 0 && id.All(char.IsAsciiDigit))
+                        work.Add((loose, file.Id, part));
+                    continue;
+                }
+
                 WzDirectory? root = _session.RoleRoot(file, "Character");
                 if (root == null)
                     continue;
@@ -301,12 +322,22 @@ public sealed class EquipmentService
                 throw new InvalidOperationException($"'{path}' has no info section.");
 
             string id = Path.GetFileNameWithoutExtension(path);
+            string part = PartNameOf(path);
+            // 20261117pan修改：loose 装备 img 的 path 就是 fileId（如 "f1"），
+            // 用路径段解析会错把 "f1" 当 id、part 为空。从索引 Row 取真实的 id/部件名。
+            EnsureRows(WzPath.FileId(path), CancellationToken.None);
+            if (_cache != null && _cache.ByPath.TryGetValue(path, out int rowIndex))
+            {
+                Row row = _cache.Rows[rowIndex];
+                id = row.Id;
+                part = row.PartName;
+            }
             EquipmentDetailDto dto = new()
             {
                 Path = path,
                 ItemId = id,
                 Name = _strings.GetItemName(TryEquipId(id)),
-                Part = PartNameOf(path),
+                Part = part,
                 Dirty = image.Changed,
                 Icon = EquipIconPath(info, path),
                 IconReward = EquipIconRewardPath(info, path),

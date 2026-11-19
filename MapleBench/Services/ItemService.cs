@@ -61,6 +61,9 @@ public sealed class ItemService
     {
         public List<ItemEntry> Entries { get; } = new();
         public Dictionary<string, ItemEntry> ByPath { get; } = new(StringComparer.Ordinal);
+        // 20261117pan修改：按数字 id 直查条目。搜索/字符串/商城等界面只有 id，
+        // 没有会话路径；让它们复用物品页的索引，就不必各自猜 img 文件名。
+        public Dictionary<int, ItemEntry> ByNumericId { get; } = new();
         public Dictionary<string, int> Categories { get; } = new(StringComparer.Ordinal);
         public Dictionary<string, WzImage> Images { get; } = new(StringComparer.Ordinal);
         public Dictionary<string, List<ItemEntry>> ByImage { get; } = new(StringComparer.Ordinal);
@@ -102,6 +105,16 @@ public sealed class ItemService
             ItemIndex index = new();
             foreach (OpenFile file in ItemArchives(fileId))
             {
+                // 20261117pan修改：单个 loose .img（如 Data/Item/Consume/0200.img）没有角色目录，
+                // RoleRoot 会返回 null 导致整个文件被跳过、物品列表恒为 0。Mob/Npc/Skill/Quest
+                // 服务早已显式处理 loose 图片，这里补齐同样的分支：把这一个聚合 img 当作一个
+                // category 直接索引，路径用 file.Id/<itemId>（与详情/保存对称）。
+                if (file.LooseImage != null)
+                {
+                    IndexLooseImage(index, file);
+                    continue;
+                }
+
                 WzDirectory? root = _session.RoleRoot(file, "Item");
                 if (root == null)
                     continue;
@@ -145,6 +158,9 @@ public sealed class ItemService
                             group.Add(entry);
                             index.Entries.Add(entry);
                             index.ByPath[itemPath] = entry;
+                            // 20261117pan修改：数字 id 索引，供按 id 取图标复用。
+                            if (TryItemId(id) is int numericId && numericId > 0)
+                                index.ByNumericId[numericId] = entry;
                         }
 
                         index.Images[imagePath] = image;
@@ -157,6 +173,62 @@ public sealed class ItemService
             _indexCache[cacheKey] = (generation, index);
             return index;
         }
+    }
+
+    /// <summary>
+    /// 20261117pan修改：索引一个以 loose .img 单独打开的物品图片。它和角色目录里的聚合
+    /// img 形状完全相同（&lt;itemId&gt;/info），只是没有 Item/&lt;category&gt; 这层目录。
+    /// category 取父目录名（Data/Item/Consume -&gt; Consume），series 取文件名；条目路径用
+    /// &lt;fileId&gt;/&lt;itemId&gt;，与 FindEntry / Detail / 字段编辑的路径规则一致。
+    /// </summary>
+    private void IndexLooseImage(ItemIndex index, OpenFile file)
+    {
+        WzImage image = file.LooseImage!;
+        WzSessionService.EnsureParsed(image);
+        string imagePath = file.Id; // the loose image itself is the session root
+        string category = "Item";
+        try
+        {
+            string? parent = Directory.GetParent(file.FilePath)?.Name;
+            if (!string.IsNullOrEmpty(parent))
+                category = parent;
+        }
+        catch { /* keep "Item" if the path cannot be inspected */ }
+        string series = SeriesOf(image.Name);
+
+        List<ItemEntry> group = new();
+        foreach (WzImageProperty prop in image.WzProperties)
+        {
+            if (prop is not WzSubProperty itemNode)
+                continue;
+            string id = prop.Name ?? "";
+            if (id.Length == 0 || !id.All(char.IsAsciiDigit))
+                continue;
+            if (itemNode["info"] is not WzSubProperty info)
+                continue;
+
+            string itemPath = WzPath.Child(imagePath, id);
+            ItemEntry entry = new()
+            {
+                Id = id,
+                Path = itemPath,
+                Category = category,
+                Series = series,
+                ImagePath = imagePath,
+                Info = info,
+                Image = image,
+            };
+            group.Add(entry);
+            index.Entries.Add(entry);
+            index.ByPath[itemPath] = entry;
+            // 20261117pan修改：loose 单 img 里的条目同样登记数字 id。
+            if (TryItemId(id) is int numericId && numericId > 0)
+                index.ByNumericId[numericId] = entry;
+        }
+
+        index.Images[imagePath] = image;
+        index.ByImage[imagePath] = group;
+        index.Categories[category] = index.Categories.GetValueOrDefault(category) + group.Count;
     }
 
     /// <summary>
@@ -197,6 +269,24 @@ public sealed class ItemService
         if (index.ByPath.TryGetValue(path, out ItemEntry? entry))
             return entry;
         throw new InvalidOperationException($"'{path}' is not an item.");
+    }
+
+    /// <summary>
+    /// 20261117pan修改：按数字 id 找到物品页也会用的图标会话路径。
+    ///
+    /// 搜索结果、字符串列表和商城只持有 id。它们过去走 /api/cashshop/icon，
+    /// 那份查找按“Item.wz/0204.img/02040000”猜路径，用户单独加载 Etc.img 之类
+    /// 的 img 时必然找不到——而物品页从索引读路径却能正常显示。这里把同一份
+    /// 索引公开给 id 查询，图标来源从此只有一处，null 表示索引里没有该 id。
+    /// </summary>
+    public string? FindIconPath(int itemId)
+    {
+        if (itemId <= 0)
+            return null;
+        ItemIndex index = EnsureIndex(null);
+        return index.ByNumericId.TryGetValue(itemId, out ItemEntry? entry)
+            ? IconPath(entry.Info, entry.Path)
+            : null;
     }
 
     /// <summary>Walks a relative path (e.g. "info/level/info/1/exp") from the image root.</summary>

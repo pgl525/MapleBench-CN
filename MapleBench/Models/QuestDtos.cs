@@ -274,6 +274,44 @@ public sealed class QuestDetailDto
 
 #endregion
 
+#region Chain
+
+/// <summary>One node in the prerequisite / follow-up chain of a quest.</summary>
+public sealed class QuestChainNodeDto
+{
+    public int QuestId { get; set; }
+
+    /// <summary>Quest name from QuestInfo; empty when the referenced quest is not in the archive.</summary>
+    public string Name { get; set; } = "";
+
+    /// <summary>Session path used to open the quest; empty when it cannot be opened.</summary>
+    public string Path { get; set; } = "";
+
+    /// <summary>Signed distance from the focused quest: negative = prerequisite, 0 = focus, positive = follow-up.</summary>
+    public int Depth { get; set; }
+
+    /// <summary>前置 | 当前 | 后续.</summary>
+    public string Side { get; set; } = "当前";
+
+    /// <summary>State the linked quest must reach (for prerequisites) or is set to (for follow-ups).</summary>
+    public string LinkState { get; set; } = "";
+
+    /// <summary>How the two quests are linked: 接取条件 / 完成条件 / 下一任务 / 上一任务.</summary>
+    public string LinkKind { get; set; } = "";
+
+    /// <summary>The chain node this one was reached from; 0 for the focused quest.</summary>
+    public int ParentId { get; set; }
+}
+
+/// <summary>The full prerequisite + follow-up chain around one quest.</summary>
+public sealed class QuestChainDto
+{
+    public int QuestId { get; set; }
+    public List<QuestChainNodeDto> Nodes { get; set; } = new();
+}
+
+#endregion
+
 #region Writes
 
 /// <summary>

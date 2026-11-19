@@ -483,7 +483,11 @@ export class Database {
       // sixty icons per repaint on the session's single gate is what made a
       // search feel slower the more it matched. Only the visible ones are
       // asked for, and the previous keystroke's are cancelled.
-      lazySprite(img, result.icon, { signal: this.sprites?.signal });
+      // 20261117pan修改：搜索结果页的图标此前恒不显示——lazySprite 依赖的
+      // IntersectionObserver 在结果面板容器里不报告可见性，回调不触发导致 img.src
+      // 一直是 null。加 eager:true 跳过可见性判断直接入队（media.js 为游离/顶层
+      // 容器提供的选项，import.js 已用），abort 信号照旧取消上一次的旧请求。
+      lazySprite(img, result.icon, { signal: this.sprites?.signal, eager: true });
     } else {
       thumb.append(el('span', { class: 'placeholder' }, icon(glyph, { size: 20 })));
     }

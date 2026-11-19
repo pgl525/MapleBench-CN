@@ -752,7 +752,9 @@ export class Inspector {
     // the sprite that used to be in it.
     image.style.width = '';
     image.style.height = '';
-    if (showsArt) lazySprite(image, thumbUrl(child.path), { signal: this.sprites?.signal });
+    // 20261117pan修改: 子表行是虚拟池(~30行), IO 在异步入池的行上不稳定触发,
+    // 导致可见行(如 04000004)一直拿不到 src 显示空白。行数量可控, 直接 eager 入队。
+    if (showsArt) lazySprite(image, thumbUrl(child.path), { signal: this.sprites?.signal, eager: true });
 
     const badge = typeCell.firstElementChild;
     badge.dataset.type = child.type || child.kind;
@@ -1118,7 +1120,10 @@ export class Inspector {
       // for a panel showing about eight of them. Through the shared loader they
       // arrive a few at a time, only the visible ones are asked for at all, and
       // navigating away cancels the rest.
-      lazySprite(shot, canvasUrl(canvas.path), { signal: this.sprites?.signal });
+      // 20261117pan修改: 资源网格是 extrasTimer 延迟后异步 append 的, 元素入 DOM 时
+      // IntersectionObserver 未可靠触发(需滚动才补加载, 60格只加载3格)。上限60个,
+      // 与导入网格同理, 直接 eager 入队, 并发仍受 media.js 的 MAX_IN_FLIGHT 限制。
+      lazySprite(shot, canvasUrl(canvas.path), { signal: this.sprites?.signal, eager: true });
 
       grid.append(el('button', {
         class: 'btn thumb',

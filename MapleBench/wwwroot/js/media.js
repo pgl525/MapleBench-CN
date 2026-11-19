@@ -32,7 +32,12 @@ import { api } from './api.js';
 const revisions = new Map();
 const MAX_REVISIONS = 5000;
 
-let epoch = 0;
+// 20261117pan修改: seed with wall-clock time so a fresh process always produces
+// new media URLs. The server marks any `?v=` URL as immutable for a year; a
+// constant 0 epoch made a stale/failed bitmap from a previous build stick in
+// WebView2's persistent cache even after the decoder was fixed and the exe
+// replaced. A timestamp makes every launch bypass those cached responses.
+let epoch = Date.now();
 
 const revisionOf = (path) => revisions.get(path) ?? 0;
 

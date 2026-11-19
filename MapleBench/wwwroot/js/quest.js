@@ -45,6 +45,8 @@ const AREAS = [
   ['Riena_Strait', '里纳海峡'], ['Savage_Terminal', '野蛮终点站'], ['Returning_Adventurer', '回归冒险家'],
   ['EvolvingSystem', '进化系统'], ['ThemeDungeon', '主题地下城'], ['Boardgame', '桌游'],
   ['Maple_Rewards', '枫叶奖励'], ['System_Features', '系统功能'], ['Root_Abyss', '根源深渊'],
+  ['VictoriaIsland_Misc', '金银岛(杂)'], ['WorldTour_Singapore', '世界旅游(新加坡)'],
+  ['Temple_of_Time', '时间神殿'], ['Knight_Stronghold', '骑士团要塞'], // 20261116pan修改：后端实际存在的区域枚举
   ['Mentoring', '师徒'], ['PC_Room_MonsterArena', '网吧怪物竞技场'], ['Crimsonheart', '绯红之心'],
   ['Stone_Colossus', '石巨人'], ['Ursus', '乌尔苏斯'], ['Maplerunner', '枫叶跑者'],
   ['Battle_Monster', '战斗怪物'], ['HOFM_HerosOfMaple', '枫叶英雄'], ['Fifth_Job_V', '五转'],
@@ -83,8 +85,12 @@ const ACT_TYPES = [
   ['InsightEXP', '洞察力经验'], ['WillEXP', '意志力经验'], ['SenseEXP', '感性经验'],
 ];
 
+// 20261116pan修改 后端 QuestStateType 返回的是枚举名字符串（QuestService.StateName），
+// 不是数字。原先用 ['0'..'4'] 数字值导致 "Completed" 匹配不上、下拉框恒显示"未开始"，
+// 且保存时会用 StateCode("0") 把 state 错误写回为 0。这里改为与后端一致的枚举名。
 const QUEST_STATES = [
-  ['0', '未开始'], ['1', '进行中'], ['2', '可完成'], ['3', '已完成'], ['4', '已结束'],
+  ['Not_Started', '未开始'], ['Started', '进行中'], ['Completed', '已完成'],
+  ['PartyQuest', '组队任务'], ['No', '无'], ['Impossible', '不可能'],
 ];
 
 const POTENTIALS = [
@@ -139,6 +145,10 @@ export class QuestSection {
     this.detailLoading = false;
     this.detailError = null;
     this.activeTab = 'info';
+    // 20261119pan修改 任务链缓存与选中节点
+    this.chain = null;
+    this.chainLoading = false;
+    this.chainSelectedId = null;
     this.resultHost = null;
     this.searchInput = null;
   }
@@ -424,6 +434,10 @@ export class QuestSection {
     this.detailError = null;
     this.detailLoading = true;
     this.activeTab = 'info';
+    // 20261119pan修改 切换任务时重置链条状态
+    this.chain = null;
+    this.chainLoading = true;
+    this.chainSelectedId = quest.questId ?? null;
     this.renderResults();
     try {
       this.detail = await api.questDetail(quest.path);
@@ -432,6 +446,15 @@ export class QuestSection {
       this.detailError = error;
     } finally {
       this.detailLoading = false;
+      this.renderResults();
+    }
+    // 20261119pan修改 详情加载后异步拉取依赖链，失败不影响详情编辑
+    try {
+      this.chain = await api.questChain(quest.path);
+    } catch (error) {
+      this.chain = null;
+    } finally {
+      this.chainLoading = false;
       this.renderResults();
     }
   }
@@ -460,6 +483,8 @@ export class QuestSection {
       el('div', { class: 'qst-detail-head' },
         el('div', { class: 'qst-detail-title', text: `任务 ${quest.questId}${quest.name ? ` · ${quest.name}` : ''}` }),
         quest.dirty ? el('span', { class: 'qst-item-dirty', text: '已修改' }) : null),
+      // 20261119pan修改 详情顶部常驻任务依赖链，点击任一节点跳转到该任务
+      this.buildChainBar(quest),
       tabs,
       body,
       el('div', { class: 'qst-detail-actions' },
@@ -469,11 +494,73 @@ export class QuestSection {
         }, icon('save', { size: 15 }), '保存任务')));
   }
 
+  // 20261119pan修改 构建任务依赖链条：前置 → 当前 → 后续，节点可点击跳转
+  buildChainBar(quest) {
+    const bar = el('div', { class: 'qst-chain-bar' });
+    const label = el('div', { class: 'qst-chain-label', 'data-tip': '按 WZ 的接取条件(Check/quest)与下一任务(Act/nextQuest)串联。点击任一任务查看它以为起点的完整链条。' },
+      icon('externalLink', { size: 14 }), '任务链');
+
+    if (this.chainLoading) {
+      bar.append(label, el('div', { class: 'qst-chain-hint', text: '正在分析依赖关系…' }));
+      return bar;
+    }
+    if (!this.chain || !this.chain.nodes || this.chain.nodes.length === 0) {
+      bar.append(label, el('div', { class: 'qst-chain-hint', text: '该任务没有前后置依赖关系' }));
+      return bar;
+    }
+
+    const nodes = this.chain.nodes;
+    const toggle = el('button', {
+      class: 'qst-chain-toggle',
+      'data-tip': '折叠/展开链条',
+      onclick: () => {
+        const collapsed = track.classList.toggle('is-collapsed');
+        toggle.textContent = collapsed ? `展开 (${nodes.length})` : '折叠';
+      },
+    }, '折叠');
+    bar.append(label, el('span', { class: 'qst-chain-count', text: `${nodes.length} 个任务` }), toggle);
+
+    const track = el('div', { class: 'qst-chain-track' });
+    nodes.forEach((node, i) => {
+      if (i > 0) {
+        const prev = nodes[i - 1];
+        track.append(el('span', {
+          class: `qst-chain-arrow${node.depth < prev.depth ? ' qst-chain-arrow-back' : ''}`,
+          'data-tip': node.linkKind ? `${node.linkKind} · ${node.linkState}` : '依赖',
+          text: '›',
+        }));
+      }
+      const isCurrent = node.questId === quest.questId;
+      const cls = ['qst-chain-node', `qst-chain-${node.side === '前置' ? 'before' : node.side === '后续' ? 'after' : 'current'}`];
+      if (isCurrent) cls.push('is-current');
+      const nodeEl = el('button', {
+        class: cls.join(' '),
+        'data-tip': isCurrent
+          ? '当前任务'
+          : `${node.side}任务 · ${node.linkKind || '依赖'}需${node.linkState || '完成'}（点击跳转）`,
+        onclick: () => {
+          if (isCurrent || !node.path) return;
+          // 20261119pan修改 点击链条节点：以该任务为中心重新加载详情与它的完整链条
+          this.selectQuest({
+            path: node.path,
+            questId: node.questId,
+            name: node.name,
+          });
+        },
+      },
+        el('span', { class: 'qst-chain-node-id', text: String(node.questId) }),
+        el('span', { class: 'qst-chain-node-name', text: node.name || '（无名称）' }));
+      track.append(nodeEl);
+    });
+    bar.append(track);
+    return bar;
+  }
+
   buildInfoTab(quest) {
-    const field = (label, control, hint) => el('label', { class: 'qst-field' },
-      el('span', { class: 'qst-field-label', text: label }),
-      control,
-      hint ? el('span', { class: 'qst-field-hint', text: hint }) : null);
+    // 20261116pan修改：第三个参数改为悬浮提示，鼠标停在字段名上即可看到含义
+    const field = (label, control, tip) => el('label', { class: 'qst-field' },
+      el('span', { class: 'qst-field-label', text: label, 'data-tip': tip || label }),
+      control);
 
     const text = (key, placeholder = '') => {
       const input = el('input', { type: 'text', value: quest[key] ?? '', placeholder });
@@ -481,32 +568,40 @@ export class QuestSection {
       return input;
     };
     const area = (key) => {
+      // 20261116pan修改：后端区域名来自 QuestAreaCodeType 全枚举，部分值（如 VictoriaIsland_Misc、
+      // WorldTour_Singapore、Temple_of_Time、Knight_Stronghold 或纯数字未知码 122）不在 AREAS 中。
+      // 若为当前值动态补一个选项，避免下拉显示空白、且保存时把原区域丢掉。
+      const options = [...AREAS];
+      if (quest[key] && !options.some(([value]) => value === quest[key]))
+        options.push([quest[key], quest[key]]);
       const select = el('select', {},
-        AREAS.map(([value, label]) => el('option', { value, text: label, selected: quest[key] === value })));
+        options.map(([value, label]) => el('option', { value, text: label, selected: quest[key] === value })));
       select.addEventListener('change', () => { quest[key] = select.value; });
       return select;
     };
-    const bool = (key, label) => {
+    // 20261116pan修改：给每个开关加悬浮提示，解释这个 WZ 标志位的实际作用
+    const bool = (key, label, tip) => {
       const box = el('input', { type: 'checkbox', checked: !!quest[key] });
       box.addEventListener('change', () => { quest[key] = box.checked; });
-      return el('label', { class: 'qst-check' }, box, el('span', { text: label }));
+      return el('label', { class: 'qst-check', 'data-tip': tip }, box, el('span', { text: label }));
     };
 
+    // 20261116pan修改：为每个字段补上悬浮含义提示（WZ QuestInfo.img/info 原始字段）
     return el('div', { class: 'qst-grid' },
-      field('名称', text('name', '任务显示名称')),
-      field('任务描述 0', text('questInfoDesc0')),
-      field('任务描述 1', text('questInfoDesc1')),
-      field('任务描述 2', text('questInfoDesc2')),
-      field('父任务 ID', text('parent', '例如 28483')),
-      field('区域', area('area')),
-      field('排序', text('order')),
-      field('摘要', text('summary')),
-      field('需求摘要', text('demandSummary')),
-      field('奖励摘要', text('rewardSummary')),
-      field('显示图层标签', text('showLayerTag')),
-      field('勋章物品 ID', text('viewMedalItem', '仅当为勋章任务时')),
+      field('名称', text('name', '任务显示名称'), '任务的显示名称'),
+      field('任务描述 0', text('questInfoDesc0'), '接取任务前显示的描述文字'),
+      field('任务描述 1', text('questInfoDesc1'), '任务进行中显示的描述文字'),
+      field('任务描述 2', text('questInfoDesc2'), '任务完成后显示的描述文字'),
+      field('父任务 ID', text('parent', '例如 28483'), '前置任务 ID；须先完成该任务才能接取本任务。0/空表示无'),
+      field('区域', area('area'), '任务所属的区域分类，决定它在任务列表里归到哪个地区'),
+      field('排序', text('order'), '任务在列表中的排列序号，数字越小越靠前'),
+      field('摘要', text('summary'), '任务列表中显示的简短说明'),
+      field('需求摘要', text('demandSummary'), '任务窗口「需求」栏的补充说明'),
+      field('奖励摘要', text('rewardSummary'), '任务窗口「奖励」栏的补充说明'),
+      field('显示图层标签', text('showLayerTag'), '任务追踪/图层上显示的标签文字'),
+      field('勋章物品 ID', text('viewMedalItem', '仅当为勋章任务时'), '勋章任务要显示的物品 ID；0 表示无'),
       field('勋章类别', (() => {
-        const select = el('select', {},
+        const select = el('select', { 'data-tip': '勋章分类；选「无」表示普通任务（非勋章任务）' },
           MEDALS.map(([value, label]) => el('option', { value, text: label, selected: quest.medalCategory === value })));
         select.addEventListener('change', () => {
           quest.medalCategory = select.value;
@@ -514,20 +609,21 @@ export class QuestSection {
           this.renderResults();
         });
         return select;
-      })()),
+      })(), '勋章分类；选「无」表示普通任务'),
+      // 20261116pan修改：12 个开关逐条补含义（WZ 原始标志位）
       el('div', { class: 'qst-bools' },
-        bool('blocked', '已封锁'),
-        bool('autoStart', '自动开始'),
-        bool('autoPreComplete', '自动预完成'),
-        bool('autoComplete', '自动完成'),
-        bool('autoCompleteAction', '自动完成动作'),
-        bool('selectedMob', '选中怪物'),
-        bool('autoAccept', '自动接受'),
-        bool('autoCancel', '自动取消'),
-        bool('oneShot', '一次性'),
-        bool('disableAtStartTab', '禁用开始标签'),
-        bool('disableAtPerformTab', '禁用进行标签'),
-        bool('disableAtCompleteTab', '禁用完成标签')),
+        bool('blocked', '已封锁', '封锁：任务被禁用，玩家无法接取'),
+        bool('autoStart', '自动开始', '自动开始：满足开始条件后自动接取，无需找 NPC'),
+        bool('autoPreComplete', '自动预完成', '自动预完成：满足完成条件后自动进入「可完成」状态'),
+        bool('autoComplete', '自动完成', '自动完成：满足条件后自动完成并领奖，无需再找 NPC 交任务'),
+        bool('autoCompleteAction', '自动完成动作', '自动完成动作：自动完成时一并执行完成动作/奖励'),
+        bool('selectedMob', '选中怪物', '选中怪物：击杀计数只对指定的怪物生效'),
+        bool('autoAccept', '自动接受', '自动接受：与 NPC 对话时自动接受本任务'),
+        bool('autoCancel', '自动取消', '自动取消：允许自动放弃本任务'),
+        bool('oneShot', '一次性', '一次性：只能完成一次，完成后不能重复接取'),
+        bool('disableAtStartTab', '禁用开始标签', '禁用开始标签：任务窗口不显示「开始」页签'),
+        bool('disableAtPerformTab', '禁用进行标签', '禁用进行标签：任务窗口不显示「进行中」页签'),
+        bool('disableAtCompleteTab', '禁用完成标签', '禁用完成标签：任务窗口不显示「完成」页签')),
     );
   }
 
@@ -716,15 +812,25 @@ export class QuestSection {
   buildRewardItems(act) {
     const box = el('div', { class: 'qst-sub-block' },
       el('div', { class: 'qst-sub-title', text: '奖励物品' }));
+    // 20261116pan修改：加列标签 + 每列悬浮说明，让每格数值的含义一目了然。
+    box.append(el('div', { class: 'qst-reward-head' },
+      el('span', { 'data-tip': '物品的 ID 编号，例如 4000031 = 诅咒娃娃', text: '物品ID' }),
+      el('span', { 'data-tip': '正数=获得该物品；负数=扣除该物品', text: '数量' }),
+      el('span', { 'data-tip': '物品有效期限(分钟)。0=永久', text: '期限(分)' }),
+      el('span', { 'data-tip': '装备潜力品质', text: '潜力' }),
+      el('span', { class: 'qst-reward-head-sp' })));
     for (let i = 0; i < act.rewardItems.length; i++) {
       const item = act.rewardItems[i];
-      const idInput = el('input', { type: 'number', value: item.itemId, 'aria-label': '物品 ID' });
+      const idInput = el('input', { type: 'number', value: item.itemId, 'aria-label': '物品 ID',
+        'data-tip': '物品 ID · 在物品页可查到编号' });
       idInput.addEventListener('input', () => { item.itemId = Number(idInput.value) || 0; });
-      const countInput = el('input', { type: 'number', value: item.quantity, 'aria-label': '数量' });
+      const countInput = el('input', { type: 'number', value: item.quantity, 'aria-label': '数量',
+        'data-tip': '数量 · 正=获得 / 负=扣除' });
       countInput.addEventListener('input', () => { item.quantity = Number(countInput.value) || 0; });
-      const periodInput = el('input', { type: 'number', value: item.period, 'aria-label': '期限(分钟)' });
+      const periodInput = el('input', { type: 'number', value: item.period, 'aria-label': '期限(分钟)',
+        'data-tip': '期限(分钟) · 0=永久' });
       periodInput.addEventListener('input', () => { item.period = Number(periodInput.value) || 0; });
-      const potSelect = el('select', {},
+      const potSelect = el('select', { 'data-tip': '潜力品质 · 仅装备类物品有意义' },
         POTENTIALS.map(([value, label]) => el('option', { value, text: label, selected: item.potentialGrade === value })));
       potSelect.addEventListener('change', () => { item.potentialGrade = potSelect.value; });
 
@@ -735,6 +841,8 @@ export class QuestSection {
           onclick: () => { act.rewardItems.splice(i, 1); this.renderResults(); },
         }, icon('close', { size: 12 }))));
     }
+    box.append(el('div', { class: 'qst-field-hint qst-reward-legend',
+      text: '提示：数量为正=发给玩家，为负=从玩家身上扣除（如收集类任务交物品）；期限 0 = 永久。' }));
     box.append(el('button', {
       class: 'btn btn-sm', onclick: () => {
         act.rewardItems.push({ itemId: 0, quantity: 1, period: 0, var: 0, prop: 0, potentialGrade: 'Normal', gender: 2, expireDate: '', job: 0, jobEx: 0 });
@@ -746,12 +854,17 @@ export class QuestSection {
 
   buildQuestRefs(refs, label) {
     const box = el('div', { class: 'qst-sub-block' },
-      el('div', { class: 'qst-sub-title', text: label }));
+      el('div', { class: 'qst-sub-title', text: label, 'data-tip': '前置任务 · 要求该任务达到指定状态才满足条件' }));
+    // 20261116pan修改：补列标题
+    box.append(el('div', { class: 'qst-reward-head' },
+      el('span', { 'data-tip': '前置任务 ID', text: '任务ID' }),
+      el('span', { 'data-tip': '该任务需达到的状态', text: '状态' }),
+      el('span', { class: 'qst-reward-head-sp' })));
     for (let i = 0; i < refs.length; i++) {
       const ref = refs[i];
-      const idInput = el('input', { type: 'number', value: ref.questId, 'aria-label': '任务 ID' });
+      const idInput = el('input', { type: 'number', value: ref.questId, 'aria-label': '任务 ID', 'data-tip': '前置任务 ID' });
       idInput.addEventListener('input', () => { ref.questId = Number(idInput.value) || 0; });
-      const stateSelect = el('select', {},
+      const stateSelect = el('select', { 'data-tip': '任务状态 · 在条件页=该任务需达到的状态；在奖励页=完成后把该任务设为该状态' },
         QUEST_STATES.map(([value, labelText]) => el('option', { value, text: labelText, selected: String(ref.questState) === value })));
       stateSelect.addEventListener('change', () => { ref.questState = stateSelect.value; });
 
@@ -763,7 +876,7 @@ export class QuestSection {
         }, icon('close', { size: 12 }))));
     }
     box.append(el('button', {
-      class: 'btn btn-sm', onclick: () => { refs.push({ questId: 0, questState: '0' }); this.renderResults(); },
+      class: 'btn btn-sm', onclick: () => { refs.push({ questId: 0, questState: 'Not_Started' }); this.renderResults(); }, // 20261116pan修改
     }, icon('plus', { size: 12 }), '添加'));
     return box;
   }
@@ -826,7 +939,8 @@ export class QuestSection {
   }
 
   buildCheckTab(quest) {
-    return el('div', { class: 'qst-check' },
+    // 20261116pan修改：容器类从 qst-check 改为 qst-check-tab，避免和复选框 label 的 .qst-check 样式冲突
+    return el('div', { class: 'qst-check-tab' },
       this.buildCheckSection('开始条件(Check 0)', quest.checkStart),
       this.buildCheckSection('完成条件(Check 1)', quest.checkEnd));
   }
@@ -837,7 +951,8 @@ export class QuestSection {
 
     for (const check of checks) {
       const card = el('div', { class: 'qst-card' });
-      const typeSelect = el('select', { class: 'qst-select' },
+      // 20261116pan修改：条件类型加悬浮说明
+      const typeSelect = el('select', { class: 'qst-select', 'data-tip': '条件类型 · 决定这条条件判断什么；切换后下方字段会变化' },
         CHECK_TYPES.map(([value, label]) => el('option', { value, text: label, selected: check.checkType === value })));
       typeSelect.addEventListener('change', () => {
         check.checkType = typeSelect.value;
@@ -872,23 +987,32 @@ export class QuestSection {
     if (AMOUNT_CHECK.has(check.checkType)) {
       const input = el('input', { type: 'number', value: check.amount || '', 'aria-label': '数值' });
       input.addEventListener('input', () => { check.amount = input.value === '' ? 0 : Number(input.value); });
-      fields.append(this.labeled('数值', input));
+      // 20261116pan修改：按条件类型给出该数值的具体含义
+      const amountTip = {
+        LvMin: '最低等级 · 玩家等级必须 ≥ 此值', LvMax: '最高等级 · 玩家等级必须 ≤ 此值',
+        WorldMin: '最低世界/转生次数', WorldMax: '最高世界/转生次数',
+        Interval: '间隔 · 距上次完成需间隔的单位数', Pop: '所需人气值',
+        CharmMin: '最低魅力值', CharismaMin: '最低领导力', InsightMin: '最低洞察力',
+        WillMin: '最低意志力', CraftMin: '最低手艺', SenseMin: '最低感性',
+        TamingMobLevelMin: '驯服怪物最低等级',
+      }[check.checkType] || '判定所需的数值门槛，具体含义取决于上方条件类型';
+      fields.append(this.labeled('数值', input, amountTip));
     }
     if (BOOL_CHECK.has(check.checkType)) {
       const input = el('input', { type: 'checkbox', checked: !!check.boolean,
         onchange: () => { check.boolean = input.checked; } });
-      fields.append(this.labeled('启用', input));
+      fields.append(this.labeled('启用', input, '是否启用这条布尔条件'));
     }
     if (check.checkType === 'Start' || check.checkType === 'End'
         || check.checkType === 'Start_t' || check.checkType === 'End_t') {
       const input = el('input', { type: 'text', value: check.date || '', placeholder: 'yyyyMMddHH 或 yyyyMMddHHmm' });
       input.addEventListener('input', () => { check.date = input.value; });
-      fields.append(this.labeled('日期', input));
+      fields.append(this.labeled('日期', input, '时间的起/止点，格式 yyyyMMddHH 或 yyyyMMddHHmm'));
     }
     if (check.checkType === 'Startscript' || check.checkType === 'Endscript') {
       const input = el('input', { type: 'text', value: check.text || '' });
       input.addEventListener('input', () => { check.text = input.value; });
-      fields.append(this.labeled('脚本', input));
+      fields.append(this.labeled('脚本', input, '条件脚本名，由服务端脚本判定'));
     }
     if (NUMBER_LIST_CHECK.has(check.checkType)) {
       fields.append(this.buildNumberList(check.selectedNumbers, '数值'));
@@ -922,10 +1046,12 @@ export class QuestSection {
   }
 
   buildNumberList(numbers, label) {
+    // 20261116pan修改：标题与输入框补悬浮含义
+    const numTip = label === '职业 ID' ? '职业 ID · 限定哪些职业满足该条件' : '数值列表中的一项';
     const box = el('div', { class: 'qst-sub-block' },
-      el('div', { class: 'qst-sub-title', text: label }));
+      el('div', { class: 'qst-sub-title', text: label, 'data-tip': numTip }));
     for (let i = 0; i < numbers.length; i++) {
-      const input = el('input', { type: 'number', value: numbers[i] });
+      const input = el('input', { type: 'number', value: numbers[i], 'data-tip': numTip });
       input.addEventListener('input', () => { numbers[i] = Number(input.value) || 0; });
       box.append(el('div', { class: 'qst-reward-row' },
         input,
@@ -942,12 +1068,17 @@ export class QuestSection {
 
   buildCheckItems(check) {
     const box = el('div', { class: 'qst-sub-block' },
-      el('div', { class: 'qst-sub-title', text: '需求物品' }));
+      el('div', { class: 'qst-sub-title', text: '需求物品', 'data-tip': '玩家必须拥有这些物品才能满足该条件' }));
+    // 20261116pan修改：补列标题
+    box.append(el('div', { class: 'qst-reward-head' },
+      el('span', { 'data-tip': '物品 ID · 可在物品页查到编号', text: '物品ID' }),
+      el('span', { 'data-tip': '需要拥有的数量', text: '数量' }),
+      el('span', { class: 'qst-reward-head-sp' })));
     for (let i = 0; i < check.selectedReqItems.length; i++) {
       const item = check.selectedReqItems[i];
-      const idInput = el('input', { type: 'number', value: item.itemId, 'aria-label': '物品 ID' });
+      const idInput = el('input', { type: 'number', value: item.itemId, 'aria-label': '物品 ID', 'data-tip': '物品 ID · 可在物品页查到编号' });
       idInput.addEventListener('input', () => { item.itemId = Number(idInput.value) || 0; });
-      const countInput = el('input', { type: 'number', value: item.quantity, 'aria-label': '数量' });
+      const countInput = el('input', { type: 'number', value: item.quantity, 'aria-label': '数量', 'data-tip': '需要拥有的数量' });
       countInput.addEventListener('input', () => { item.quantity = Number(countInput.value) || 0; });
       box.append(el('div', { class: 'qst-reward-row' },
         idInput, countInput,
@@ -964,12 +1095,17 @@ export class QuestSection {
 
   buildMobReqs(check) {
     const box = el('div', { class: 'qst-sub-block' },
-      el('div', { class: 'qst-sub-title', text: '需求怪物' }));
+      el('div', { class: 'qst-sub-title', text: '需求怪物', 'data-tip': '玩家必须击杀指定数量的这些怪物' }));
+    // 20261116pan修改：补列标题
+    box.append(el('div', { class: 'qst-reward-head' },
+      el('span', { 'data-tip': '怪物 ID · 可在怪物页查到编号', text: '怪物ID' }),
+      el('span', { 'data-tip': '需要击杀的数量', text: '数量' }),
+      el('span', { class: 'qst-reward-head-sp' })));
     for (let i = 0; i < check.mobReqs.length; i++) {
       const mob = check.mobReqs[i];
-      const idInput = el('input', { type: 'number', value: mob.id, 'aria-label': '怪物 ID' });
+      const idInput = el('input', { type: 'number', value: mob.id, 'aria-label': '怪物 ID', 'data-tip': '怪物 ID · 可在怪物页查到编号' });
       idInput.addEventListener('input', () => { mob.id = Number(idInput.value) || 0; });
-      const countInput = el('input', { type: 'number', value: mob.count, 'aria-label': '数量' });
+      const countInput = el('input', { type: 'number', value: mob.count, 'aria-label': '数量', 'data-tip': '需要击杀的数量' });
       countInput.addEventListener('input', () => { mob.count = Number(countInput.value) || 0; });
       box.append(el('div', { class: 'qst-reward-row' },
         idInput, countInput,
@@ -986,16 +1122,23 @@ export class QuestSection {
 
   buildCheckSkills(check) {
     const box = el('div', { class: 'qst-sub-block' },
-      el('div', { class: 'qst-sub-title', text: '需求技能' }));
+      el('div', { class: 'qst-sub-title', text: '需求技能', 'data-tip': '要求玩家已学会指定技能' }));
+    // 20261116pan修改：补列标题（技能ID / 等级 / 获取 / 判定方式）
+    box.append(el('div', { class: 'qst-reward-head' },
+      el('span', { 'data-tip': '技能 ID', text: '技能ID' }),
+      el('span', { 'data-tip': '技能等级', text: '等级' }),
+      el('span', { 'data-tip': '是否必须已获取(true=学会该技能才算)', text: '获取' }),
+      el('span', { 'data-tip': '等级判定：None=不比较 / OrGreater=≥ / Equal=等于', text: '判定' }),
+      el('span', { class: 'qst-reward-head-sp' })));
     for (let i = 0; i < check.skills.length; i++) {
       const skill = check.skills[i];
-      const idInput = el('input', { type: 'number', value: skill.id, 'aria-label': '技能 ID' });
+      const idInput = el('input', { type: 'number', value: skill.id, 'aria-label': '技能 ID', 'data-tip': '技能 ID' });
       idInput.addEventListener('input', () => { skill.id = Number(idInput.value) || 0; });
-      const levelInput = el('input', { type: 'number', value: skill.skillLevel, 'aria-label': '技能等级' });
+      const levelInput = el('input', { type: 'number', value: skill.skillLevel, 'aria-label': '技能等级', 'data-tip': '技能等级' });
       levelInput.addEventListener('input', () => { skill.skillLevel = Number(levelInput.value) || 0; });
       const acquireInput = el('input', { type: 'checkbox', checked: !!skill.acquire,
         onchange: () => { skill.acquire = acquireInput.checked; } });
-      const condSelect = el('select', {},
+      const condSelect = el('select', { 'data-tip': '等级判定：None=不比较 / OrGreater=≥ / Equal=等于' },
         ['None', 'OrGreater', 'Equal'].map((t) => el('option', { value: t, text: t, selected: skill.conditionType === t })));
       condSelect.addEventListener('change', () => { skill.conditionType = condSelect.value; });
       box.append(el('div', { class: 'qst-skill-row' },
@@ -1016,7 +1159,7 @@ export class QuestSection {
 
   buildInfoList(check) {
     const box = el('div', { class: 'qst-sub-block' },
-      el('div', { class: 'qst-sub-title', text: '信息文本' }));
+      el('div', { class: 'qst-sub-title', text: '信息文本', 'data-tip': 'Info 条件 · 自定义文本标记' }));
     for (let i = 0; i < check.questInfo.length; i++) {
       const input = el('input', { type: 'text', value: check.questInfo[i].text });
       input.addEventListener('input', () => { check.questInfo[i].text = input.value; });
@@ -1035,12 +1178,17 @@ export class QuestSection {
 
   buildInfoExList(check) {
     const box = el('div', { class: 'qst-sub-block' },
-      el('div', { class: 'qst-sub-title', text: 'InfoEx 条目' }));
+      el('div', { class: 'qst-sub-title', text: 'InfoEx 条目', 'data-tip': '扩展信息文本 · 可带条件值，常用于显示多段说明' }));
+    // 20261116pan修改：补列标题
+    box.append(el('div', { class: 'qst-reward-head' },
+      el('span', { 'data-tip': '信息文本内容', text: '值' }),
+      el('span', { 'data-tip': '条件值 0/1/2 · 控制该段文字在何种状态显示', text: '条件' }),
+      el('span', { class: 'qst-reward-head-sp' })));
     for (let i = 0; i < check.questInfoEx.length; i++) {
       const infoEx = check.questInfoEx[i];
-      const valueInput = el('input', { type: 'text', value: infoEx.value, 'aria-label': '值' });
+      const valueInput = el('input', { type: 'text', value: infoEx.value, 'aria-label': '值', 'data-tip': '信息文本内容' });
       valueInput.addEventListener('input', () => { infoEx.value = valueInput.value; });
-      const condInput = el('input', { type: 'number', value: infoEx.condition, 'aria-label': '条件(0/1/2)' });
+      const condInput = el('input', { type: 'number', value: infoEx.condition, 'aria-label': '条件(0/1/2)', 'data-tip': '条件值 0/1/2 · 控制该段文字在何种状态显示' });
       condInput.addEventListener('input', () => { infoEx.condition = Number(condInput.value) || 0; });
       box.append(el('div', { class: 'qst-reward-row' },
         valueInput, condInput,
@@ -1057,9 +1205,15 @@ export class QuestSection {
 
   buildDayOfWeek(check) {
     const box = el('div', { class: 'qst-sub-block' },
-      el('div', { class: 'qst-sub-title', text: '星期' }));
+      el('div', { class: 'qst-sub-title', text: '星期', 'data-tip': '只能在勾选的星期内接取/完成任务' }));
     const row = el('div', { class: 'qst-days' });
-    for (const day of DAYS) {
+    // 20261116pan修改：老客户端(如任务8248/8249)用数字 "1" 等表示星期，不在 DAYS 枚举中。
+    // 把这些实际存在的值也动态渲染成可勾选项，避免勾选状态丢失、保存时被清空。
+    const days = [...DAYS];
+    for (const d of check.dayOfWeek) {
+      if (d.dayOfWeek && !days.includes(d.dayOfWeek)) days.push(d.dayOfWeek);
+    }
+    for (const day of days) {
       const selected = check.dayOfWeek.some((d) => d.dayOfWeek === day && d.isSelected);
       const input = el('input', { type: 'checkbox', checked: selected,
         onchange: () => {
@@ -1071,15 +1225,17 @@ export class QuestSection {
             existing.isSelected = false;
           }
         } });
-      row.append(el('label', { class: 'qst-check' }, input, el('span', { text: DAY_LABELS[day] })));
+      row.append(el('label', { class: 'qst-check' }, input,
+        el('span', { text: DAY_LABELS[day] || `星期(${day})` })));
     }
     box.append(row);
     return box;
   }
 
-  labeled(label, control) {
+  // 20261116pan修改：可选 tip 参数，鼠标停在字段名上显示含义
+  labeled(label, control, tip) {
     return el('label', { class: 'qst-field' },
-      el('span', { class: 'qst-field-label', text: label }),
+      el('span', { class: 'qst-field-label', text: label, 'data-tip': tip || label }),
       control);
   }
 

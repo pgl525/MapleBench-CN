@@ -38,6 +38,11 @@ public sealed class QuestService
     private readonly Dictionary<string, (int Structure, QuestIndex Index)> _indexCache =
         new(StringComparer.Ordinal);
 
+    // 20261119pan修改 任务依赖图缓存：按会话结构代缓存，扫描全部任务的
+    // Check/quest(前置) 与 Act/nextQuest(后续) 建图，供"任务链"查询复用。
+    private (int Structure, QuestDependencyGraph Graph)? _dependencyGraph;
+    private const int MaxChainDepth = 60;
+
     /// <summary>One quest's four sections, as session paths and live properties.</summary>
     private sealed class QuestEntry
     {
@@ -190,6 +195,10 @@ public sealed class QuestService
         if (image.Name is "QuestInfo.img" or "Say.img" or "Act.img" or "Check.img")
         {
             string section = image.Name[..^4].ToLowerInvariant();
+            // 20261116pan修改 QuestInfo.img 去后缀后是 "questinfo"，而 IndexAggregateImage 的
+            // switch 只认 "info"，导致 entry.Info 全为 null、被孤儿清理删光，任务列表恒为 0。
+            // 这里把 questinfo 归并为 info；Act/Say/Check 的 section 本就匹配，不受影响。
+            if (section == "questinfo") section = "info";
             IndexAggregateImage(index, image, file.Id, section);
         }
         else if (stem.Length > 0)
@@ -312,6 +321,200 @@ public sealed class QuestService
             Stats = whole.Stats,
             Truncated = whole.Truncated,
         }, whole.Quests.Count);
+    }
+
+    #endregion
+
+    #region Chain (20261119pan修改)
+
+    /// <summary>
+    /// A directed dependency edge: when <see cref="To"/> is started/completed,
+    /// <see cref="From"/> must be in <see cref="State"/>. Built from two WZ sources:
+    /// Check/0|1/quest (prerequisite) and Act/0|1/nextQuest (successor).
+    /// </summary>
+    private sealed class DependencyEdge
+    {
+        public required int From { get; init; }
+        public required int To { get; init; }
+        public string State { get; init; } = "Completed";
+        public string Kind { get; init; } = "接取条件";
+    }
+
+    /// <summary>
+    /// Quest id -> (predecessors it requires, successors that require it).
+    /// Both directions are stored so a chain can be walked either way from any node.
+    /// </summary>
+    private sealed class QuestDependencyGraph
+    {
+        public Dictionary<int, List<DependencyEdge>> RequiredBy { get; } = new();
+        public Dictionary<int, List<DependencyEdge>> Requires { get; } = new();
+
+        public void Add(int from, int to, string state, string kind)
+        {
+            if (from <= 0 || to <= 0 || from == to)
+                return;
+            DependencyEdge edge = new() { From = from, To = to, State = state, Kind = kind };
+            if (!Requires.TryGetValue(from, out List<DependencyEdge>? req))
+                Requires[from] = req = new();
+            if (!req.Any(e => e.To == to))
+                req.Add(edge);
+            if (!RequiredBy.TryGetValue(to, out List<DependencyEdge>? by))
+                RequiredBy[to] = by = new();
+            if (!by.Any(e => e.From == from))
+                by.Add(edge);
+        }
+    }
+
+    /// <summary>
+    /// Scans every indexed quest's Check and Act sections to build the dependency
+    /// graph. Cached against the session structure generation; a value-only edit
+    /// does not change the graph's shape.
+    /// </summary>
+    private QuestDependencyGraph EnsureDependencyGraph()
+    {
+        lock (_session.Gate)
+        {
+            int generation = _session.StructureGeneration;
+            if (_dependencyGraph is { } cached && cached.Structure == generation)
+                return cached.Graph;
+
+            QuestDependencyGraph graph = new();
+            QuestIndex index = EnsureIndex(null);
+            foreach (QuestEntry entry in index.Entries.Values)
+            {
+                int questId = TryId(entry.Id);
+                if (questId <= 0)
+                    continue;
+
+                // Check/0 (start) and Check/1 (end): a "quest" child lists quests
+                // that must be in a given state before this quest can start/end.
+                CollectQuestRequirements(entry.Check, "0", "接取条件", questId, graph);
+                CollectQuestRequirements(entry.Check, "1", "完成条件", questId, graph);
+
+                // Act/0 and Act/1 "nextQuest": completing this quest leads to the next.
+                CollectNextQuest(entry.Act, "0", questId, graph);
+                CollectNextQuest(entry.Act, "1", questId, graph);
+            }
+
+            _dependencyGraph = (generation, graph);
+            return graph;
+        }
+    }
+
+    private static void CollectQuestRequirements(WzSubProperty? check, string sectionName,
+        string kind, int questId, QuestDependencyGraph graph)
+    {
+        if (check?[sectionName] is not WzSubProperty section)
+            return;
+        foreach (WzImageProperty property in section.WzProperties)
+        {
+            if (!string.Equals(property.Name, "quest", StringComparison.OrdinalIgnoreCase)
+                || property is not WzSubProperty quests)
+                continue;
+            foreach (WzImageProperty questProp in quests.WzProperties)
+            {
+                int required = (questProp["id"] as WzIntProperty)?.Value ?? 0;
+                if (required <= 0)
+                    continue;
+                int state = (questProp["state"] as WzIntProperty)?.Value ?? 2;
+                // required quest must reach `state` before `questId` can proceed:
+                // required -> questId.
+                graph.Add(required, questId, StateName(state), kind);
+            }
+        }
+    }
+
+    private static void CollectNextQuest(WzSubProperty? act, string sectionName,
+        int questId, QuestDependencyGraph graph)
+    {
+        if (act?[sectionName] is not WzSubProperty section)
+            return;
+        foreach (WzImageProperty property in section.WzProperties)
+        {
+            if (!string.Equals(property.Name, "nextQuest", StringComparison.OrdinalIgnoreCase))
+                continue;
+            int next = (property as WzIntProperty)?.Value ?? 0;
+            if (next > 0)
+                graph.Add(questId, next, "Completed", "下一任务");
+        }
+    }
+
+    /// <summary>
+    /// Walks the dependency graph outward from one quest in both directions and
+    /// returns the ordered prerequisite -> current -> follow-up chain.
+    /// </summary>
+    public QuestChainDto Chain(string path)
+    {
+        lock (_session.Gate)
+        {
+            (QuestIndex index, QuestEntry entry) = ResolveEntry(path);
+            int rootId = TryId(entry.Id);
+            QuestDependencyGraph graph = EnsureDependencyGraph();
+
+            Dictionary<int, string> names = new();
+            Dictionary<int, string> paths = new();
+            foreach (QuestEntry e in index.Entries.Values)
+            {
+                int id = TryId(e.Id);
+                if (id <= 0)
+                    continue;
+                paths[id] = e.InfoPath;
+                names[id] = (e.Info?["name"] as WzStringProperty)?.Value ?? string.Empty;
+            }
+
+            QuestChainDto result = new() { QuestId = rootId };
+            HashSet<int> visited = new() { rootId };
+
+            // Walk backwards: quests that must be done before this one.
+            Walk(graph.RequiredBy, rootId, -1, visited, result.Nodes, "前置", names, paths, depth: 1);
+            // Place the focused quest between the two halves.
+            result.Nodes.Add(new QuestChainNodeDto
+            {
+                QuestId = rootId,
+                Name = names.GetValueOrDefault(rootId, string.Empty),
+                Path = paths.GetValueOrDefault(rootId, string.Empty),
+                Depth = 0,
+                Side = "当前",
+            });
+            // Walk forwards: quests that require this one.
+            Walk(graph.Requires, rootId, 1, visited, result.Nodes, "后续", names, paths, depth: 1);
+
+            // DFS visits near nodes before far ones; order prerequisites far->near
+            // and follow-ups near->far so the list reads left-to-right as a chain.
+            result.Nodes.Sort((a, b) => a.Depth.CompareTo(b.Depth));
+            return result;
+        }
+    }
+
+    private static void Walk(Dictionary<int, List<DependencyEdge>> adjacency, int rootId, int sign,
+        HashSet<int> visited, List<QuestChainNodeDto> output, string side,
+        Dictionary<int, string> names, Dictionary<int, string> paths, int depth)
+    {
+        if (depth > MaxChainDepth)
+            return;
+        if (!adjacency.TryGetValue(rootId, out List<DependencyEdge>? edges))
+            return;
+
+        foreach (DependencyEdge edge in edges)
+        {
+            int neighbour = sign < 0 ? edge.From : edge.To;
+            if (!visited.Add(neighbour))
+                continue;
+            // For prerequisites output far->near by adding after recursion;
+            // gathered in a temp buffer then reversed by caller ordering below.
+            output.Add(new QuestChainNodeDto
+            {
+                QuestId = neighbour,
+                Name = names.GetValueOrDefault(neighbour, string.Empty),
+                Path = paths.GetValueOrDefault(neighbour, string.Empty),
+                Depth = sign * depth,
+                Side = side,
+                LinkState = edge.State,
+                LinkKind = edge.Kind,
+                ParentId = rootId,
+            });
+            Walk(adjacency, neighbour, sign, visited, output, side, names, paths, depth + 1);
+        }
     }
 
     #endregion
@@ -1005,14 +1208,18 @@ public sealed class QuestService
                 case "worldmin":
                 case "worldmax":
                 {
-                    checkDto = AddCheck(target, Capitalize(property.Name));
+                    // 20261116pan修改：Capitalize("worldmin") 得到 "Worldmin"，与前端 CHECK_TYPES 和
+                    // SaveCheckList 使用的 "WorldMin"/"WorldMax" 大小写不一致，导致下拉匹配不上、
+                    // 保存时被静默丢弃。这里直接用规范名，保证读/存/前端三者一致。
+                    checkDto = AddCheck(target, property.Name == "worldmin" ? "WorldMin" : "WorldMax");
                     checkDto.Amount = (property as WzStringProperty)?.GetInt() ?? 0;
                     break;
                 }
                 case "lvmin":
                 case "lvmax":
                 {
-                    checkDto = AddCheck(target, Capitalize(property.Name));
+                    // 20261116pan修改：同上，Capitalize("lvmin")="Lvmin" 与前端/Save 的 "LvMin" 不符。
+                    checkDto = AddCheck(target, property.Name == "lvmin" ? "LvMin" : "LvMax");
                     checkDto.Amount = (property as WzIntProperty)?.Value ?? 0;
                     break;
                 }
@@ -1703,14 +1910,20 @@ public sealed class QuestService
                 }
                 case "WorldMin":
                 case "WorldMax":
+                    // 20261116pan修改：写回键名与 ParseCheck 的 case("worldmin"/"worldmax") 字面一致，
+                    // 避免 ToCamel 生成 "worldMin" 后下次解析匹配不上导致条件丢失。
                     if (check.Amount != 0)
-                        section.AddProperty(new WzStringProperty(ToCamel(check.CheckType), check.Amount.ToString(CultureInfo.InvariantCulture)));
+                        section.AddProperty(new WzStringProperty(check.CheckType.ToLowerInvariant(), check.Amount.ToString(CultureInfo.InvariantCulture)));
                     break;
                 case "LvMin":
                 case "LvMax":
+                    // 20261116pan修改：同上，键名固定全小写 "lvmin"/"lvmax"。
+                    if (check.Amount != 0)
+                        section.AddProperty(new WzIntProperty(check.CheckType.ToLowerInvariant(), (int)check.Amount));
+                    break;
                 case "Interval":
                     if (check.Amount != 0)
-                        section.AddProperty(new WzIntProperty(ToCamel(check.CheckType), (int)check.Amount));
+                        section.AddProperty(new WzIntProperty("interval", (int)check.Amount));
                     break;
                 case "NormalAutoStart":
                     if (check.Boolean)
@@ -1834,8 +2047,11 @@ public sealed class QuestService
 
     private (QuestIndex Index, QuestEntry Entry) ResolveEntry(string path)
     {
-        string fileId = WzPath.FileId(path);
-        QuestIndex index = EnsureIndex(fileId);
+        // 20261116pan修改 详情必须基于全部 Quest 源建索引，才能把 QuestInfo/Say/Act/Check
+        // 四个区块关联到同一 entry。原先用 path 里的 fileId（如 f5=QuestInfo.img）建索引，
+        // 结果 entry 只有 Info、没有 Say/Act/Check，导致对话/奖励/条件三个标签页全空。
+        // path 只用来提取 questId，不再限定索引范围。
+        QuestIndex index = EnsureIndex(null);
 
         // The path is either <...>/QuestInfo.img/<id> (aggregate), <...>/<id>.img
         // (per-quest image), or <...>/QuestData/<id>.img.

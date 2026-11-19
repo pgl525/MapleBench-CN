@@ -1012,8 +1012,21 @@ namespace MapleLib.WzLib.WzProperties
             int destinationOffset = 0;
             while (sourceOffset < source.Length)
             {
-                if (source.Length - sourceOffset < sizeof(int))
+                int remaining = source.Length - sourceOffset;
+                if (remaining < sizeof(int))
                 {
+                    // 20261117pan修改: Some older clients (e.g. EMS v079 item .img) store canvas
+                    // blobs in a fixed-size slot and pad the last block with 1-3 zero bytes.
+                    // The tail is alignment padding, not another block header -- HaRepacker
+                    // skips it. Tolerate only an all-zero tail; a non-zero short tail is still
+                    // a genuine malformed header and must fail as before.
+                    bool allZeroPadding = true;
+                    for (int t = sourceOffset; t < source.Length; t++)
+                    {
+                        if (source[t] != 0) { allZeroPadding = false; break; }
+                    }
+                    if (allZeroPadding)
+                        break;
                     throw new InvalidDataException("Invalid listWz PNG block header.");
                 }
 

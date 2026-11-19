@@ -35,10 +35,14 @@ public sealed class IconService
 
     private readonly WzSessionService _session;
     private readonly ILogger<IconService> _log;
+    private readonly ItemService _items;
+    private readonly WzRenderService _render;
 
-    public IconService(WzSessionService session, ILogger<IconService> log)
+    public IconService(WzSessionService session, ItemService items, WzRenderService render, ILogger<IconService> log)
     {
         _session = session;
+        _items = items;
+        _render = render;
         _log = log;
     }
 
@@ -60,9 +64,23 @@ public sealed class IconService
         {
             lock (_session.Gate)
             {
-                WzImageProperty? icon = FindIconProperty(itemId);
-                if (icon != null)
-                    png = Encode(icon);
+                // 20261117pan修改：先问物品页的索引。它认识单独加载的 Etc.img /
+                // 0200.img 这类 loose 图片，也认识 iconRaw；原先这里的按 id 猜
+                // 路径只覆盖完整 Item.wz 的聚合 img，加载单个 img 后搜索页、
+                // 字符串页、商城依旧空白，而物品页正常。索引未命中才走旧查找。
+                string? indexed = _items.FindIconPath(itemId);
+                // 这里刻意走 /api/thumb 的同一套渲染：iconRaw 可能是 canvas、
+                // 也可能是 PNG 属性或带 _inlink/_outlink 的节点，自己只认
+                // WzCanvasProperty 会让 04001328 这类物品继续空白。
+                if (indexed != null)
+                    png = _render.RenderCanvasPng(indexed);
+
+                if (png == null)
+                {
+                    WzImageProperty? icon = FindIconProperty(itemId);
+                    if (icon != null)
+                        png = Encode(icon);
+                }
             }
         }
         catch (Exception ex)

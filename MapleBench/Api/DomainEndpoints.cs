@@ -85,7 +85,18 @@ public static class DomainEndpoints
                 kinds = StringEditService.Kinds.Select(k => new
                 {
                     kind = k.Kind,
-                    label = k.Label,
+                    // 20261117pan修改：界面标签汉化。服务内部的 Label 仍用于
+                    // 英文错误文案（如 "not one of Items' indexed fields"），
+                    // 这里只把给前端的显示名换掉，避免破坏既有报错。
+                    label = k.Kind switch
+                    {
+                        "item" => "物品",
+                        "mob" => "怪物",
+                        "skill" => "技能",
+                        "npc" => "NPC",
+                        "map" => "地图",
+                        _ => k.Label,
+                    },
                     fields = k.Fields,
                     images = k.Images.Select(i => new { image = i.Image, layout = i.Layout.ToString() }),
                 }),
@@ -97,8 +108,9 @@ public static class DomainEndpoints
                 // Rule 12: name the edge where the user reaches for it.
                 unsupported = new[]
                 {
-                    "The client's own UI text (StringTable.img, ToolTipHelp.img, the EULAs) is not " +
-                    "keyed by id and is not editable here — use the Explorer.",
+                    // 20261117pan修改：这条说明由前端原样显示，汉化。
+                    "客户端自身的界面文字（StringTable.img、ToolTipHelp.img、用户协议等）不按 ID " +
+                    "索引，无法在此编辑——请在资源管理器中修改。",
                 },
             }));
 
