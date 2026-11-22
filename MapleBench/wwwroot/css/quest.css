@@ -214,3 +214,57 @@
 .qst-skill-row input { flex: 1; min-width: 70px; }
 .qst-skill-row .qst-check { flex: 1; min-width: 90px; }
 .qst-days { display: flex; gap: 10px; flex-wrap: wrap; }
+
+/* 20261122pan修改：条件页 + 奖励页紧凑布局。
+   原来每条是「类型下拉 / 字段标签 / 输入框」纵向三行堆叠，
+   单条约 90px 高，几条就占满屏幕。现在压成
+   「类型下拉 + 删除 + 字段标签 + 输入框」同一行；复杂子块（任务/物品/怪物等）
+   仍独占整行，避免和下拉框互相挤压。
+   作用范围：条件页(.qst-check-tab) 与 奖励页(.qst-act)；对话页另见下方。 */
+.qst-check-tab, .qst-act { gap: 10px; }
+.qst-check-tab .qst-check-section, .qst-act .qst-act-section { gap: 6px; }
+.qst-check-tab .qst-card, .qst-act .qst-card {
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  padding: 6px 8px;
+}
+.qst-check-tab .qst-card-head, .qst-act .qst-card-head { gap: 6px; }
+.qst-check-tab .qst-card-head .qst-select, .qst-act .qst-card-head .qst-select { padding: 3px 6px; }
+.qst-check-tab .qst-card-fields, .qst-act .qst-card-fields {
+  flex: 1 1 auto;
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+}
+/* 简单字段（数值/等级/日期等）：标签与控件并排，不再上下两行 */
+.qst-check-tab .qst-card-fields > .qst-field, .qst-act .qst-card-fields > .qst-field { flex-direction: row; align-items: center; gap: 6px; }
+.qst-check-tab .qst-card-fields > .qst-field > .qst-field-label, .qst-act .qst-card-fields > .qst-field > .qst-field-label { white-space: nowrap; }
+.qst-check-tab .qst-card-fields > .qst-field > input[type="text"],
+.qst-check-tab .qst-card-fields > .qst-field > input[type="number"],
+.qst-act .qst-card-fields > .qst-field > input[type="text"],
+.qst-act .qst-card-fields > .qst-field > input[type="number"] {
+  width: 140px;
+  min-width: 90px;
+}
+/* 复杂子块：任务前置/物品/怪物/技能/星期等，整行显示避免挤压 */
+.qst-check-tab .qst-card-fields > .qst-sub-block, .qst-act .qst-card-fields > .qst-sub-block { flex: 1 1 100%; gap: 3px; padding-left: 6px; }
+
+/* 20261122pan修改：对话页(Say)紧凑布局。
+   每块对话原来 textarea 3 行 + 上下间距偏大；这里压到 2 行、
+   缩小卡片内边距和 Yes/No 列表行距，添加按钮改小，整体更省空间。
+   Yes/No 仍左右并排，多条回应的顺序/含义不变。 */
+.qst-say { gap: 10px; }
+.qst-say-section { gap: 6px; }
+.qst-conv { padding: 6px 8px; gap: 5px; }
+.qst-conv textarea { height: 40px; min-height: 40px; line-height: 1.35; }
+.qst-conv-head { gap: 6px; }
+.qst-resp-row { gap: 8px; }
+.qst-resp-list { gap: 3px; }
+.qst-resp-label { font-size: var(--fs-11); line-height: 1.2; }
+.qst-resp-item input { padding: 3px 6px; }
+.qst-resp-item .btn { padding: 2px 5px; }
+.qst-resp-list > .btn { padding: 2px 6px; }
+.qst-stop-head { margin-top: 2px; }

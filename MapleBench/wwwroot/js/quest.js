@@ -639,7 +639,8 @@ export class QuestSection {
 
     for (let i = 0; i < conversations.length; i++) {
       const say = conversations[i];
-      const textarea = el('textarea', { rows: 3, value: say.npcConversation,
+      // 20261122pan修改：3 行改 2 行，压缩对话页占用面积（CSS 另有 height:40px 限制）
+      const textarea = el('textarea', { rows: 2, value: say.npcConversation,
         placeholder: 'NPC 对话文本(支持 #b/#k/#L0#/#l 等代码)' });
       textarea.addEventListener('input', () => { say.npcConversation = textarea.value; });
 
