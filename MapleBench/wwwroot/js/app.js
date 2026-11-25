@@ -191,6 +191,18 @@ class App {
     }
     this.pendingFiles = null;
     if (!this.files.length) this.showWelcome();
+    // 20261125pan修改: 品牌区版本号与"关于"框共用 /api/about，加载失败就留空，
+    // 不影响首屏。独立发起，不加入 boot 的等待链，避免为一个徽章阻塞界面。
+    this.loadBrandVersion();
+  }
+
+  /** 20261125pan修改: 把程序集版本填入主页品牌区的版本号徽章。 */
+  async loadBrandVersion() {
+    try {
+      const about = await api.about();
+      const node = $('#brand-version');
+      if (node && about && about.version) node.textContent = `v${about.version}`;
+    } catch { /* the badge simply stays empty when the API is unavailable */ }
   }
 
   /**
@@ -2313,7 +2325,8 @@ class App {
   }
 
   async showAbout() {
-    let about = { version: '1.0.0', license: 'GPL-3.0' };
+    // 20261125pan修改: 默认版本与程序集版本对齐；后端的 /api/about 会覆盖它。
+    let about = { version: '1.3.0', license: 'GPL-3.0' };
     try { about = { ...about, ...(await api.about()) }; } catch { /* static details remain useful */ }
 
     modal({
@@ -2329,6 +2342,8 @@ class App {
           el('dt', { text: '许可证' }), el('dd', { text: about.license }),
           el('dt', { text: '源格式' }), el('dd', { text: '经典 .wz 与拆分 Data 客户端' })),
         el('p', { class: 'about-note', text: '保存会先写入临时文件,并在替换目标文件前重新打开验证。' }),
+        // 20261125pan修改: 应用户要求，源码链接保留原作者 GitHub（中文修改版的
+        // 仓库地址在 Gitee/GitHub 的 fork 里，均由 Release 页面提供下载）。
         el('a', { class: 'btn', href: 'https://github.com/xkiro-dev/MapleBench', target: '_blank',
           rel: 'noreferrer', text: '在 GitHub 上查看源代码' })),
     });

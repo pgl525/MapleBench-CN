@@ -23,8 +23,9 @@
     <AssemblyTitle>MapleBench</AssemblyTitle>
     <Description>Windows WZ editor and dependency-aware MapleStory client importer with visual previews and verified saves</Description>
     <Product>MapleBench</Product>
-    <AssemblyVersion>1.0.0.0</AssemblyVersion>
-    <FileVersion>1.0.0.0</FileVersion>
+    <!-- 20261125pan修改: 版本号与 Release tag 对齐（v1.3.0），/api/about 读取它。 -->
+    <AssemblyVersion>1.3.0.0</AssemblyVersion>
+    <FileVersion>1.3.0.0</FileVersion>
 
     <RootNamespace>MapleBench</RootNamespace>
 
