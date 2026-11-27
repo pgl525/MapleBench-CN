@@ -20,6 +20,7 @@ import { fieldLabel } from './fieldLabels.js';
 import { icon } from './icons.js';
 import { thumbUrl, lazySprite } from './media.js';
 import { openPortDialog } from './port.js';
+import { nameEditButton } from './nameEditor.js'; // 20261127pan修改：编辑器内直接改名称
 
 const PAGE_SIZE = 60;
 
@@ -464,13 +465,96 @@ export class Mobs {
           ? el('button', { class: 'btn', text: '清除搜索', onclick: () => { this.query = ''; this.render(); } })
           : el('button', { class: 'btn', text: '显示所有怪物', onclick: () => { this.filter = 'all'; this.render(); } })));
     } else {
-      const grid = el('div', { class: 'mob-grid' });
-      for (const mob of slice) grid.append(this.buildCard(mob));
-      panel.append(grid);
+      // 20261127pan修改: 卡片网格改为逐行紧凑列表，参照物品界面。
+      this.appendMobRows(panel, slice);
       if (pages > 1) panel.append(this.buildPager(pages));
     }
 
     this.resultHost.append(panel);
+  }
+
+  // 20261127pan修改: 逐行列表 + 表头，复用 item.css 的 .clist-* 样式。
+  appendMobRows(panel, slice) {
+    const cols = '24px 40px minmax(84px, 0.7fr) minmax(150px, 1.5fr) minmax(64px, 0.5fr) minmax(90px, 0.75fr) minmax(90px, 0.75fr) minmax(120px, 1fr) minmax(64px, 0.5fr) 64px';
+    const list = el('div', { class: 'clist', style: `--clist-cols:${cols}` });
+    list.append(el('div', { class: 'clist-row clist-row-head' },
+      el('span', { class: 'clist-col clist-col-check' }),
+      el('span', { class: 'clist-col clist-col-thumb' }),
+      el('span', { class: 'clist-col clist-col-id', text: 'ID' }),
+      el('span', { class: 'clist-col clist-col-name', text: '名称' }),
+      el('span', { class: 'clist-col', text: '等级' }),
+      el('span', { class: 'clist-col', text: 'HP' }),
+      el('span', { class: 'clist-col', text: 'EXP' }),
+      el('span', { class: 'clist-col', text: '攻击' }),
+      el('span', { class: 'clist-col clist-col-flags' }),
+      el('span', { class: 'clist-col clist-col-actions' })));
+    for (const mob of slice) list.append(this.buildRow(mob));
+    panel.append(list);
+  }
+
+  // 20261127pan修改: 由卡片改为紧凑行，功能（选择/精灵图/打开详情/等级/HP/
+  // EXP/攻击/Boss 等标记/编辑/更多菜单）全部保留。
+  buildRow(mob) {
+    const selected = this.selection.has(mob.path);
+    const row = el('div', {
+      class: 'clist-row', 'data-path': mob.path, 'data-mob-id': mob.mobId,
+      'data-selected': selected ? 'true' : 'false',
+    });
+
+    const box = el('input', {
+      type: 'checkbox', checked: selected,
+      'aria-label': `选择 ${mob.name || `怪物 ${mob.mobId}`}`,
+      onclick: (event) => event.stopPropagation(),
+    });
+    box.addEventListener('change', () => {
+      if (box.checked) this.selection.add(mob.path); else this.selection.delete(mob.path);
+      row.dataset.selected = box.checked ? 'true' : 'false';
+      this.refreshSelectionBar();
+    });
+
+    row.append(...[
+      el('span', { class: 'clist-col clist-col-check' }, el('label', {}, box)),
+      el('span', { class: 'clist-col clist-col-thumb' }, this.buildSprite(mob)),
+      el('span', { class: 'clist-col clist-col-id', text: mob.mobId }),
+      el('span', { class: 'clist-col clist-col-name' },
+        el('button', {
+          class: 'clist-row-title', text: mob.name || `怪物 ${mob.mobId}`,
+          'data-tip': '打开此怪物',
+          onclick: (event) => { event.stopPropagation(); this.openMobCard(mob, event.currentTarget); },
+        }),
+        // 20261127pan修改：名称按钮旁直接改 String.wz 名称
+        nameEditButton({ kind: 'mob', id: mob.mobId, label: '怪物', app: this.app,
+          enabled: this.capabilities.names !== false,
+          onSaved: (entry) => {
+            if (entry?.fields?.name) mob.name = entry.fields.name;
+            this.renderResults();
+          } })),
+      el('span', { class: 'clist-col clist-col-num', text: `Lv ${fmt.format(mob.level ?? 0)}` }),
+      el('span', { class: 'clist-col clist-col-num', text: fmt.format(mob.maxHP ?? 0) }),
+      el('span', { class: 'clist-col clist-col-num', text: fmt.format(mob.exp ?? 0) }),
+      el('span', { class: 'clist-col clist-col-sub', text: `${fmt.format(mob.padamage ?? 0)}/${fmt.format(mob.madamage ?? 0)}` }),
+      el('span', { class: 'clist-col clist-col-flags' },
+        mob.isBoss ? el('span', { class: 'clist-flag', 'data-kind': 'boss', text: 'Boss' }) : null,
+        mob.undead ? el('span', { class: 'clist-flag', 'data-kind': 'undead', text: '亡灵' }) : null,
+        mob.linkTarget ? el('span', { class: 'clist-flag', 'data-kind': 'link', text: '链接' }) : null,
+        mob.dirty ? el('span', { class: 'clist-flag', 'data-kind': 'dirty', text: '未保存' }) : null),
+      el('span', { class: 'clist-col clist-col-actions' },
+        el('button', {
+          class: 'btn btn-sm btn-icon', 'data-tip': '编辑属性',
+          onclick: (event) => { event.stopPropagation(); this.openMobCard(mob, event.currentTarget); },
+        }, icon('edit', { size: 14 })),
+        el('button', {
+          class: 'btn btn-sm btn-icon', 'data-tip': '更多',
+          onclick: (event) => {
+            event.stopPropagation();
+            const rect = event.currentTarget.getBoundingClientRect();
+            this.app.showMenu(this.menuItemsFor(mob), rect.left, rect.bottom + 4);
+          },
+        }, icon('more', { size: 15 }))),
+    ].filter(Boolean));
+
+    row.addEventListener('click', () => this.openMobCard(mob, row));
+    return row;
   }
 
   /**
@@ -802,9 +886,24 @@ export class Mobs {
 
   buildDetailHead(ctx) {
     const mob = ctx.mob;
+    const nameEl = el('div', { class: 'mob-detail-name', text: mob.name || `怪物 ${mob.mobId}` });
     return el('div', { class: 'mob-detail-head' },
       el('div', {},
-        el('div', { class: 'mob-detail-name', text: mob.name || `怪物 ${mob.mobId}` }),
+        el('div', { class: 'ne-detail-name-row' },
+          nameEl,
+          // 20261127pan修改：详情里也能直接改名称
+          nameEditButton({ kind: 'mob', id: mob.mobId, label: '怪物', app: this.app,
+            enabled: this.capabilities.names !== false,
+            onSaved: (entry) => {
+              const next = entry?.fields?.name;
+              if (!next) return;
+              mob.name = next;
+              if (ctx.detail) ctx.detail.name = next;
+              nameEl.textContent = next;
+              const title = nameEl.closest('dialog')?.querySelector('.modal-title');
+              if (title) title.textContent = next;
+              this.renderResults();
+            } })),
         el('div', { class: 'mob-sub', text: `ID ${mob.mobId}` })),
       el('span', { class: 'mob-level', text: `Lv ${fmt.format(mob.level ?? 0)}` }),
       mob.isBoss ? el('span', { class: 'mob-badge', 'data-kind': 'boss', text: 'Boss' }) : null,

@@ -3,6 +3,7 @@ import { el, clear, toast, toastError, fmt, modal, debounce, runOnce, busyWhile,
 import { emptyState } from './inspector.js';
 import { icon } from './icons.js';
 import { fieldLabel, PART_LABELS } from './fieldLabels.js';
+import { nameEditButton } from './nameEditor.js'; // 20261127pan修改：编辑器内直接改名称
 
 /**
  * Equipment section, in the same shape as the Mob editor: a card grid over the
@@ -393,13 +394,98 @@ export class EquipmentSection {
           ? '调整筛选条件后再试。'
           : '存档已打开，但其中没有任何带 info 的装备图片。'));
     } else {
-      const grid = el('div', { class: 'mob-grid' });
-      for (const item of this.items) grid.append(this.buildCard(item));
-      panel.append(grid);
+      // 20261127pan修改: 卡片网格改为逐行紧凑列表，参照物品界面。
+      this.appendEquipRows(panel);
       if (pages > 1) panel.append(this.buildPager(pages));
     }
 
     this.resultHost.append(panel);
+  }
+
+  // 20261127pan修改: 逐行列表 + 表头，复用 item.css 的 .clist-* 样式。
+  appendEquipRows(panel) {
+    const cols = '24px 40px minmax(84px, 0.7fr) minmax(140px, 1.6fr) minmax(70px, 0.6fr) minmax(74px, 0.6fr) minmax(74px, 0.6fr) minmax(60px, 0.5fr) 64px';
+    const list = el('div', { class: 'clist', style: `--clist-cols:${cols}` });
+    list.append(el('div', { class: 'clist-row clist-row-head' },
+      el('span', { class: 'clist-col clist-col-check' }),
+      el('span', { class: 'clist-col clist-col-thumb' }),
+      el('span', { class: 'clist-col clist-col-id', text: 'ID' }),
+      el('span', { class: 'clist-col clist-col-name', text: '名称' }),
+      el('span', { class: 'clist-col', text: '部件' }),
+      el('span', { class: 'clist-col', text: '需求等级' }),
+      el('span', { class: 'clist-col', text: '需求 STR' }),
+      el('span', { class: 'clist-col clist-col-flags' }),
+      el('span', { class: 'clist-col clist-col-actions' })));
+    for (const item of this.items) list.append(this.buildRow(item));
+    panel.append(list);
+  }
+
+  // 20261127pan修改: 由卡片改为紧凑行，功能（选择/图标/打开详情/部件/需求/
+  // 脏标记/编辑/更多菜单）全部保留。
+  buildRow(item) {
+    const selected = this.selection.has(item.path);
+    const row = el('div', {
+      class: 'clist-row', 'data-path': item.path, 'data-selected': selected ? 'true' : 'false',
+    });
+
+    const box = el('input', {
+      type: 'checkbox', checked: selected,
+      'aria-label': `选择 ${item.name || `装备 ${item.itemId}`}`,
+      onclick: (event) => event.stopPropagation(),
+    });
+    box.addEventListener('change', () => {
+      if (box.checked) this.selection.add(item.path); else this.selection.delete(item.path);
+      row.dataset.selected = box.checked ? 'true' : 'false';
+      this.refreshSelectionBar();
+    });
+
+    const thumb = item.icon
+      ? el('img', {
+          class: 'item-thumb', alt: '', loading: 'lazy',
+          src: `/api/thumb?path=${encodeURIComponent(item.icon)}&v=${this.thumbRev}`,
+          onerror: (event) => { event.target.style.visibility = 'hidden'; },
+        })
+      : el('span', { class: 'item-thumb item-thumb-empty' }, icon('shield', { size: 16 }));
+
+    row.append(...[
+      el('span', { class: 'clist-col clist-col-check' }, el('label', {}, box)),
+      el('span', { class: 'clist-col clist-col-thumb' }, thumb),
+      el('span', { class: 'clist-col clist-col-id', text: item.itemId }),
+      el('span', { class: 'clist-col clist-col-name' },
+        el('button', {
+          class: 'clist-row-title', text: item.name || `装备 ${item.itemId}`,
+          'data-tip': '打开此装备',
+          onclick: (event) => { event.stopPropagation(); this.openEquipCard(item, event.currentTarget); },
+        }),
+        // 20261127pan修改：名称按钮旁直接改 String.wz 名称
+        nameEditButton({ kind: 'item', id: item.itemId, label: '装备', app: this.app,
+          enabled: this.capabilities.names !== false,
+          onSaved: (entry) => {
+            if (entry?.fields?.name) item.name = entry.fields.name;
+            this.renderResults();
+          } })),
+      el('span', { class: 'clist-col' }, el('span', { class: 'clist-flag', text: item.part })),
+      el('span', { class: 'clist-col clist-col-num', text: item.reqLevel ? fmt.format(item.reqLevel) : '—' }),
+      el('span', { class: 'clist-col clist-col-num', text: item.reqStr ? fmt.format(item.reqStr) : '—' }),
+      el('span', { class: 'clist-col clist-col-flags' },
+        item.dirty ? el('span', { class: 'clist-flag', 'data-kind': 'dirty', text: '未保存' }) : null),
+      el('span', { class: 'clist-col clist-col-actions' },
+        el('button', {
+          class: 'btn btn-sm btn-icon', 'data-tip': '编辑属性',
+          onclick: (event) => { event.stopPropagation(); this.openEquipCard(item, event.currentTarget); },
+        }, icon('edit', { size: 14 })),
+        el('button', {
+          class: 'btn btn-sm btn-icon', 'data-tip': '更多',
+          onclick: (event) => {
+            event.stopPropagation();
+            const rect = event.currentTarget.getBoundingClientRect();
+            this.app.showMenu(this.menuItemsFor(item), rect.left, rect.bottom + 4);
+          },
+        }, icon('more', { size: 15 }))),
+    ].filter(Boolean));
+
+    row.addEventListener('click', () => this.openEquipCard(item, row));
+    return row;
   }
 
   buildCard(item) {
@@ -781,9 +867,24 @@ export class EquipmentSection {
   buildDetailHead(ctx) {
     const item = ctx.item;
     const levels = ctx.detail.levels || [];
+    const nameEl = el('div', { class: 'mob-detail-name', text: item.name || `装备 ${item.itemId}` });
     return el('div', { class: 'mob-detail-head' },
       el('div', {},
-        el('div', { class: 'mob-detail-name', text: item.name || `装备 ${item.itemId}` }),
+        el('div', { class: 'ne-detail-name-row' },
+          nameEl,
+          // 20261127pan修改：详情里也能直接改名称
+          nameEditButton({ kind: 'item', id: item.itemId, label: '装备', app: this.app,
+            enabled: this.capabilities.names !== false,
+            onSaved: (entry) => {
+              const next = entry?.fields?.name;
+              if (!next) return;
+              item.name = next;
+              if (ctx.detail) ctx.detail.name = next;
+              nameEl.textContent = next;
+              const title = nameEl.closest('dialog')?.querySelector('.modal-title');
+              if (title) title.textContent = next;
+              this.renderResults();
+            } })),
         el('div', { class: 'mob-sub', text: `ID ${item.itemId} · ${item.part}` +
           (levels.length ? ` · 可升级 ${levels.length} 级` : '') })),
       item.dirty ? el('span', { class: 'mob-badge', 'data-kind': 'dirty', text: '未保存' }) : null,

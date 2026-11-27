@@ -27,6 +27,7 @@ import { emptyState } from './inspector.js';
 import { fieldLabel } from './fieldLabels.js';
 import { icon } from './icons.js';
 import { thumbUrl, lazySprite } from './media.js';
+import { nameEditButton, stringNodeEditButton } from './nameEditor.js'; // 20261127pan修改：编辑器内直接改名称与字符串引用
 
 const PAGE_SIZE = 60;
 
@@ -582,13 +583,93 @@ export class SkillSection {
           : el('button', { class: 'btn', text: '显示全部技能',
               onclick: () => { this.filter = 'all'; localStorage.setItem('mb.skillFilter', 'all'); this.render(); } })));
     } else {
-      const grid = el('div', { class: 'sk-grid' });
-      for (const skill of slice) grid.append(this.buildCard(skill));
-      panel.append(grid);
+      // 20261127pan修改: 卡片网格改为逐行紧凑列表，参照物品界面。
+      this.appendSkillRows(panel, slice);
       if (pages > 1) panel.append(this.buildPager(pages));
     }
 
     this.resultHost.append(panel);
+  }
+
+  // 20261127pan修改: 逐行列表 + 表头，复用 item.css 的 .clist-* 样式。
+  appendSkillRows(panel, slice) {
+    const cols = '24px 40px minmax(80px, 0.6fr) minmax(150px, 1.5fr) minmax(120px, 1fr) minmax(84px, 0.7fr) minmax(70px, 0.55fr) minmax(70px, 0.55fr) 64px';
+    const list = el('div', { class: 'clist', style: `--clist-cols:${cols}` });
+    list.append(el('div', { class: 'clist-row clist-row-head' },
+      el('span', { class: 'clist-col clist-col-check' }),
+      el('span', { class: 'clist-col clist-col-thumb' }),
+      el('span', { class: 'clist-col clist-col-id', text: 'ID' }),
+      el('span', { class: 'clist-col clist-col-name', text: '名称' }),
+      el('span', { class: 'clist-col', text: '技能书' }),
+      el('span', { class: 'clist-col', text: '等级' }),
+      el('span', { class: 'clist-col', text: '存储' }),
+      el('span', { class: 'clist-col clist-col-flags' }),
+      el('span', { class: 'clist-col clist-col-actions' })));
+    for (const skill of slice) list.append(this.buildRow(skill));
+    panel.append(list);
+  }
+
+  // 20261127pan修改: 由卡片改为紧凑行，功能（选择/图标/打开等级表/技能书/
+  // 等级/存储类型/损坏与被动等标记/更多菜单）全部保留。
+  buildRow(skill) {
+    const selected = this.selection.has(skill.path);
+    const row = el('div', {
+      class: 'clist-row', 'data-path': skill.path, 'data-skill-id': skill.skillId,
+      'data-selected': selected ? 'true' : 'false',
+    });
+
+    const box = el('input', {
+      type: 'checkbox', checked: selected,
+      'aria-label': `选择 ${skill.name || `技能 ${skill.skillId}`}`,
+      onclick: (event) => event.stopPropagation(),
+    });
+    box.addEventListener('change', () => {
+      if (box.checked) this.selection.add(skill.path); else this.selection.delete(skill.path);
+      row.dataset.selected = box.checked ? 'true' : 'false';
+      this.refreshSelectionBar();
+    });
+
+    row.append(...[
+      el('span', { class: 'clist-col clist-col-check' }, el('label', {}, box)),
+      el('span', { class: 'clist-col clist-col-thumb' }, skillIcon(skill.path, 40, this.sprites?.signal)),
+      el('span', { class: 'clist-col clist-col-id', text: skill.skillId }),
+      el('span', { class: 'clist-col clist-col-name' },
+        el('button', {
+          class: 'clist-row-title', text: skill.name || `技能 ${skill.skillId}`,
+          'data-tip': '打开等级表',
+          onclick: (event) => { event.stopPropagation(); this.openSkillCard(skill); },
+        }),
+        // 20261127pan修改：名称按钮旁直接改 String.wz 名称
+        nameEditButton({ kind: 'skill', id: skill.skillId, label: '技能', app: this.app,
+          enabled: this.capabilities.names !== false,
+          onSaved: (entry) => {
+            if (entry?.fields?.name) skill.name = entry.fields.name;
+            this.renderResults();
+          } })),
+      el('span', { class: 'clist-col clist-col-sub', text: skill.bookName || `技能书 ${skill.bookId}` }),
+      el('span', { class: 'clist-col clist-col-num', text: skill.maxLevel ? `Lv 1–${fmt.format(skill.maxLevel)}` : 'Lv —' }),
+      el('span', { class: 'clist-col clist-col-sub', text: STORAGE_LABEL[skill.storage] ?? skill.storage }),
+      el('span', { class: 'clist-col clist-col-flags' },
+        skill.badFormulas ? el('span', { class: 'clist-flag', 'data-kind': 'warn', 'data-tip': '有公式无法解析', text: `${fmt.format(skill.badFormulas)} 损坏` }) : null,
+        skill.passive ? el('span', { class: 'clist-flag', text: '被动' }) : null,
+        skill.dirty ? el('span', { class: 'clist-flag', 'data-kind': 'dirty', text: '未保存' }) : null),
+      el('span', { class: 'clist-col clist-col-actions' },
+        el('button', {
+          class: 'btn btn-sm btn-icon', 'data-tip': '打开等级表',
+          onclick: (event) => { event.stopPropagation(); this.openSkillCard(skill); },
+        }, icon('grid4', { size: 14 })),
+        el('button', {
+          class: 'btn btn-sm btn-icon', 'data-tip': '更多',
+          onclick: (event) => {
+            event.stopPropagation();
+            const rect = event.currentTarget.getBoundingClientRect();
+            this.app.showMenu(this.menuItemsFor(skill), rect.left, rect.bottom + 4);
+          },
+        }, icon('more', { size: 15 }))),
+    ].filter(Boolean));
+
+    row.addEventListener('click', () => this.openSkillCard(skill));
+    return row;
   }
 
   buildCard(skill) {
@@ -817,11 +898,26 @@ export class SkillSection {
   buildDetailHead(ctx) {
     const d = ctx.detail;
     const levels = d.levels.filter((row) => row.present).length;
+    const nameEl = el('div', { class: 'sk-detail-name', text: d.name || `技能 ${d.skillId}` });
 
     return el('div', { class: 'sk-detail-head' },
       skillIcon(d.path, 52),
       el('div', { class: 'sk-detail-id' },
-        el('div', { class: 'sk-detail-name', text: d.name || `技能 ${d.skillId}` }),
+        el('div', { class: 'ne-detail-name-row' },
+          nameEl,
+          // 20261127pan修改：详情里也能直接改名称
+          nameEditButton({ kind: 'skill', id: d.skillId, label: '技能', app: this.app,
+            enabled: this.capabilities.names !== false,
+            onSaved: (entry) => {
+              const next = entry?.fields?.name;
+              if (!next) return;
+              d.name = next;
+              if (ctx.skill) ctx.skill.name = next;
+              nameEl.textContent = next;
+              const title = nameEl.closest('dialog')?.querySelector('.modal-title');
+              if (title) title.textContent = next;
+              this.renderResults();
+            } })),
         el('div', { class: 'sk-sub', text: `ID ${d.skillId} · ${STORAGE_BLURB[d.storage] ?? ''}` })),
       el('span', { class: 'sk-badge', 'data-kind': d.storage, text: STORAGE_LABEL[d.storage] ?? d.storage }),
       el('span', {
@@ -1322,6 +1418,24 @@ export class SkillSection {
     });
 
     td.append(input);
+    // 20261127pan修改：hs 里存的是 String.wz 的 key（h1 / h2…），上面这个输入框
+    // 改的只是 key 本身。真正显示的话术在字符串节点，给一个直达入口。
+    if (column.key === 'hs' && value) {
+      td.classList.add('sk-cell-with-string');
+      td.append(stringNodeEditButton({
+        label: value,
+        app: this.app,
+        enabled: this.capabilities.names !== false,
+        resolvePath: async () => {
+          const entry = await api.stringEntry('skill', ctx.detail.skillId);
+          if (!entry?.path) {
+            throw new Error('String.wz 中没有这个技能的条目节点，请先在字符串编辑器里创建。');
+          }
+          return `${entry.path}/${value}`;
+        },
+        note: '此文本节点可能被同一技能的多个等级共用；修改后所有引用它的等级都会变。',
+      }));
+    }
     return td;
   }
 

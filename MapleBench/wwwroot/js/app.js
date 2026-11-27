@@ -2325,8 +2325,8 @@ class App {
   }
 
   async showAbout() {
-    // 20261125pan修改: 默认版本与程序集版本对齐；后端的 /api/about 会覆盖它。
-    let about = { version: '1.3.0', license: 'GPL-3.0' };
+    // 20261127pan修改: 默认版本与程序集版本对齐（v1.4.0）；后端的 /api/about 会覆盖它。
+    let about = { version: '1.4.0', license: 'GPL-3.0' };
     try { about = { ...about, ...(await api.about()) }; } catch { /* static details remain useful */ }
 
     modal({

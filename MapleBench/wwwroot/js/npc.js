@@ -30,6 +30,7 @@ import { emptyState } from './inspector.js';
 import { icon } from './icons.js';
 import { thumbUrl, lazySprite } from './media.js';
 import { openPortDialog } from './port.js';
+import { nameEditButton, stringNodeEditButton } from './nameEditor.js'; // 20261127pan修改：编辑器内直接改名称与字符串引用
 
 const PAGE_SIZE = 60;
 
@@ -559,13 +560,95 @@ export class NpcSection {
           ? el('button', { class: 'btn', text: '清除搜索', onclick: () => { this.query = ''; this.render(); } })
           : el('button', { class: 'btn', text: '显示全部 NPC', onclick: () => { this.filter = 'all'; this.render(); } })));
     } else {
-      const grid = el('div', { class: 'npc-grid' });
-      for (const npc of slice) grid.append(this.buildCard(npc));
-      panel.append(grid);
+      // 20261127pan修改: 卡片网格改为逐行紧凑列表，参照物品界面。
+      this.appendNpcRows(panel, slice);
       if (pages > 1) panel.append(this.buildPager(pages));
     }
 
     this.resultHost.append(panel);
+  }
+
+  // 20261127pan修改: 逐行列表 + 表头，复用 item.css 的 .clist-* 样式。
+  appendNpcRows(panel, slice) {
+    const cols = '24px 40px minmax(90px, 0.7fr) minmax(140px, 1.4fr) minmax(130px, 1.1fr) minmax(110px, 0.9fr) minmax(64px, 0.5fr) minmax(70px, 0.6fr) 64px';
+    const list = el('div', { class: 'clist', style: `--clist-cols:${cols}` });
+    list.append(el('div', { class: 'clist-row clist-row-head' },
+      el('span', { class: 'clist-col clist-col-check' }),
+      el('span', { class: 'clist-col clist-col-thumb' }),
+      el('span', { class: 'clist-col clist-col-id', text: 'ID' }),
+      el('span', { class: 'clist-col clist-col-name', text: '名称' }),
+      el('span', { class: 'clist-col', text: '职能' }),
+      el('span', { class: 'clist-col', text: '脚本' }),
+      el('span', { class: 'clist-col', text: '对话行' }),
+      el('span', { class: 'clist-col clist-col-flags' }),
+      el('span', { class: 'clist-col clist-col-actions' })));
+    for (const npc of slice) list.append(this.buildRow(npc));
+    panel.append(list);
+  }
+
+  // 20261127pan修改: 由卡片改为紧凑行，功能（选择/肖像/打开详情/职能/脚本/
+  // 对话行/商店等标记/编辑/更多菜单）全部保留。
+  buildRow(npc) {
+    const selected = this.selection.has(npc.path);
+    const row = el('div', {
+      class: 'clist-row', 'data-path': npc.path, 'data-npc-id': npc.npcId,
+      'data-selected': selected ? 'true' : 'false',
+    });
+
+    const box = el('input', {
+      type: 'checkbox', checked: selected,
+      'aria-label': `选择 ${npc.name || `NPC ${npc.npcId}`}`,
+      onclick: (event) => event.stopPropagation(),
+    });
+    box.addEventListener('change', () => {
+      if (box.checked) this.selection.add(npc.path); else this.selection.delete(npc.path);
+      row.dataset.selected = box.checked ? 'true' : 'false';
+      this.refreshSelectionBar();
+    });
+
+    row.append(...[
+      el('span', { class: 'clist-col clist-col-check' }, el('label', {}, box)),
+      el('span', { class: 'clist-col clist-col-thumb' }, this.buildPortrait(npc)),
+      el('span', { class: 'clist-col clist-col-id', text: npc.npcId }),
+      el('span', { class: 'clist-col clist-col-name' },
+        el('button', {
+          class: 'clist-row-title', text: npc.name || `NPC ${npc.npcId}`,
+          'data-tip': '打开此 NPC',
+          onclick: (event) => { event.stopPropagation(); this.openNpcCard(npc); },
+        }),
+        // 20261127pan修改：名称按钮旁直接改 String.wz 名称
+        nameEditButton({ kind: 'npc', id: npc.npcId, label: 'NPC', app: this.app,
+          enabled: this.capabilities.names !== false,
+          onSaved: (entry) => {
+            if (entry?.fields?.name) npc.name = entry.fields.name;
+            this.renderResults();
+          } })),
+      el('span', { class: 'clist-col clist-col-sub', text: npc.func || '—' }),
+      el('span', { class: 'clist-col clist-col-sub', text: npc.script || (npc.hasScript ? '位于组中' : '—') }),
+      el('span', { class: 'clist-col clist-col-num', text: npc.speakLines == null ? '—' : fmt.format(npc.speakLines) }),
+      el('span', { class: 'clist-col clist-col-flags' },
+        npc.isShop ? el('span', { class: 'clist-flag', text: '商店' }) : null,
+        npc.isStorage || npc.isTrunk ? el('span', { class: 'clist-flag', text: '仓库' }) : null,
+        npc.hasScript ? el('span', { class: 'clist-flag', text: '脚本' }) : null,
+        npc.linkTarget ? el('span', { class: 'clist-flag', 'data-kind': 'link', text: '链接' }) : null,
+        npc.dirty ? el('span', { class: 'clist-flag', 'data-kind': 'dirty', text: '未保存' }) : null),
+      el('span', { class: 'clist-col clist-col-actions' },
+        el('button', {
+          class: 'btn btn-sm btn-icon', 'data-tip': '编辑字段',
+          onclick: (event) => { event.stopPropagation(); this.openNpcCard(npc); },
+        }, icon('edit', { size: 14 })),
+        el('button', {
+          class: 'btn btn-sm btn-icon', 'data-tip': '更多',
+          onclick: (event) => {
+            event.stopPropagation();
+            const rect = event.currentTarget.getBoundingClientRect();
+            this.app.showMenu(this.menuItemsFor(npc), rect.left, rect.bottom + 4);
+          },
+        }, icon('more', { size: 15 }))),
+    ].filter(Boolean));
+
+    row.addEventListener('click', () => this.openNpcCard(npc));
+    return row;
   }
 
   buildCard(npc) {
@@ -898,13 +981,28 @@ export class NpcSection {
   buildDetailHead(ctx) {
     const detail = ctx.detail;
     const name = detail.name || ctx.npc.name;
+    const nameEl = el('div', { class: 'npc-detail-name', text: name || `NPC ${detail.npcId}` });
 
     return el('div', { class: 'npc-detail-head' },
       // Rebuilt on every paint along with the rest of the head, which is cheap:
       // the browser has the sprite cached from the card behind this dialog.
       this.buildPortrait(detail, 'lg', false),
       el('div', { class: 'npc-detail-id' },
-        el('div', { class: 'npc-detail-name', text: name || `NPC ${detail.npcId}` }),
+        el('div', { class: 'ne-detail-name-row' },
+          nameEl,
+          // 20261127pan修改：详情里也能直接改名称
+          nameEditButton({ kind: 'npc', id: detail.npcId, label: 'NPC', app: this.app,
+            enabled: this.capabilities.names !== false,
+            onSaved: (entry) => {
+              const next = entry?.fields?.name;
+              if (!next) return;
+              detail.name = next;
+              ctx.npc.name = next;
+              nameEl.textContent = next;
+              const title = nameEl.closest('dialog')?.querySelector('.modal-title');
+              if (title) title.textContent = next;
+              this.renderResults();
+            } })),
         el('div', { class: 'npc-sub', text: `ID ${detail.npcId}` }),
         detail.func ? el('div', { class: 'npc-func', text: detail.func }) : null),
       detail.dirty ? el('span', { class: 'npc-badge', 'data-kind': 'dirty', text: '未保存' }) : null,
@@ -1214,11 +1312,25 @@ export class NpcSection {
           class: 'btn btn-sm btn-icon', 'data-tip': '在资源管理器中显示此键',
           onclick: () => { ctx.close?.(); this.showInExplorer(line.path); },
         }, icon('hash', { size: 14 })),
+        // 20261127pan修改：原来这个按钮只是跳资源管理器，改成应用内直接改文本
         line.stringPath
-          ? el('button', {
-              class: 'btn btn-sm btn-icon', 'data-tip': '在 String.wz 中编辑文本',
-              onclick: () => { ctx.close?.(); this.showInExplorer(line.stringPath); },
-            }, icon('type', { size: 14 }))
+          ? stringNodeEditButton({
+              path: line.stringPath,
+              label: line.key || `第 ${line.index} 行`,
+              app: this.app,
+              enabled: this.capabilities.canEditText !== false,
+              tip: '直接编辑 String.wz 中的这句话',
+              onSaved: (text, button) => {
+                line.text = text;
+                const binding = button?.closest('.npc-binding');
+                const main = binding?.querySelector('.npc-binding-main');
+                if (main) {
+                  main.textContent = text;
+                  main.dataset.quoted = 'true';
+                }
+                binding?.removeAttribute('data-tone');
+              },
+            })
           : null));
     }
 

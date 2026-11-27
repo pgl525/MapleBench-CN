@@ -106,7 +106,9 @@
 .item-col-check input { accent-color: var(--coral-fill); width: 16px; height: 16px; cursor: pointer; }
 .item-col-thumb { display: flex; align-items: center; }
 .item-col-id { font-variant-numeric: tabular-nums; color: var(--text-2); }
-.item-col-name { color: var(--text-1); }
+/* 20261127pan修改：名称旁容纳“改名称”小按钮 */
+.item-col-name { color: var(--text-1); display: flex; align-items: center; gap: 4px; min-width: 0; }
+.item-col-name .item-row-title { flex: 1 1 auto; min-width: 0; }
 .item-row-title {
   background: none; border: 0; padding: 0; font: inherit; color: var(--text-1);
   font-weight: 600; max-width: 100%; overflow: hidden; text-overflow: ellipsis;
@@ -213,3 +215,71 @@
 /* --- bulk dialog --- */
 .item-bulk-form { display: flex; flex-direction: column; gap: var(--sp-3); padding: var(--sp-2) 0; }
 .item-bulk-form .item-field-input { width: 100%; }
+
+/* ============================================================
+   20261127pan修改: 通用紧凑列表 (compact list)
+   参照物品界面的逐行布局，供装备/技能/怪物/NPC 共用。
+   每个界面在自己的容器上用 --clist-cols 定义列宽，其余样式共享。
+   ============================================================ */
+.clist { overflow: auto; }
+.clist-row {
+  display: grid;
+  grid-template-columns: var(--clist-cols);
+  align-items: center;
+  gap: var(--sp-2);
+  width: 100%;
+  padding: 4px var(--sp-3);
+  min-height: 48px;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--r-lg);
+  color: var(--text-1);
+  font-size: var(--fs-13);
+  text-align: left;
+  cursor: pointer;
+}
+.clist-row:hover { background: var(--bg-hover); }
+.clist-row[data-selected="true"] { background: var(--bg-active); border-color: var(--border-focus); }
+.clist-row-head {
+  cursor: default; color: var(--text-3); font-size: var(--fs-11);
+  text-transform: uppercase; letter-spacing: 0.05em;
+  border-bottom: 1px solid var(--border); border-radius: 0;
+  margin-bottom: var(--sp-1); min-height: 30px;
+}
+.clist-row-head:hover { background: none; }
+.clist-col { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.clist-col-check { display: flex; align-items: center; }
+.clist-col-check input { accent-color: var(--coral-fill); width: 16px; height: 16px; cursor: pointer; }
+.clist-col-thumb { display: flex; align-items: center; }
+.clist-col-id { font-variant-numeric: tabular-nums; color: var(--text-2); }
+/* 20261127pan修改：名称旁容纳“改名称”小按钮 */
+.clist-col-name { color: var(--text-1); display: flex; align-items: center; gap: 4px; min-width: 0; }
+.clist-col-name .clist-row-title { flex: 1 1 auto; min-width: 0; }
+.clist-col-num { color: var(--text-2); font-variant-numeric: tabular-nums; }
+.clist-col-sub { color: var(--text-3); font-size: var(--fs-12); }
+.clist-row-title {
+  background: none; border: 0; padding: 0; font: inherit; color: var(--text-1);
+  font-weight: 600; max-width: 100%; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; cursor: pointer; text-align: left;
+}
+.clist-row-title:hover { color: var(--coral-ink); }
+.clist-col-flags { display: flex; gap: var(--sp-1); align-items: center; flex-wrap: wrap; }
+.clist-col-actions { display: flex; gap: 2px; justify-content: flex-end; }
+.clist-col-actions .btn { padding: 2px 6px; }
+.clist-flag {
+  font-size: var(--fs-10); line-height: 1.4;
+  padding: 1px var(--sp-2); border-radius: var(--r-sm);
+  background: var(--bg-field); color: var(--text-3);
+  white-space: nowrap;
+}
+.clist-flag[data-kind="boss"]   { background: var(--purple-tint); color: var(--purple-ink); }
+.clist-flag[data-kind="undead"] { background: var(--green-tint);  color: var(--green-ink); }
+.clist-flag[data-kind="link"]   { background: var(--amber-tint);  color: var(--amber-ink); }
+.clist-flag[data-kind="warn"]   { background: var(--amber-tint);  color: var(--amber-ink); }
+.clist-flag[data-kind="dirty"]  { background: var(--coral-tint);  color: var(--coral-ink); }
+/* 图标统一成 40px 方框，覆盖各界面原有 32px sprite / portrait。 */
+.clist-col-thumb .mob-sprite,
+.clist-col-thumb .npc-portrait,
+.clist-col-thumb .sk-icon { width: 40px; height: 40px; }
+.clist-col-thumb .mob-sprite-img,
+.clist-col-thumb .npc-portrait img { max-width: 40px; max-height: 40px; }

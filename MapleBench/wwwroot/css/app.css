@@ -1630,3 +1630,34 @@ dialog::backdrop { background: var(--bg-overlay); }
 @media (prefers-reduced-motion: reduce) {
   .dump-bar[data-unknown="true"] .dump-bar-fill { animation: none; width: 100%; opacity: 0.5; }
 }
+
+/* 20261127pan修改：编辑器内直接改名称（nameEditor.js） */
+.ne-detail-name-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.ne-edit-btn { flex: 0 0 auto; padding: 3px 6px; opacity: .72; }
+.ne-edit-btn:hover { opacity: 1; }
+.ne-body { display: grid; gap: 12px; padding: 2px 0 4px; }
+.ne-status {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 10px; border-radius: var(--r-sm);
+  background: var(--bg-field); color: var(--text-2); font-size: var(--fs-12);
+}
+.ne-status[data-kind="new"] { background: var(--amber-tint); color: var(--amber-ink); }
+.ne-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; flex: 0 0 auto; }
+.ne-path {
+  font-family: var(--font-mono); font-size: var(--fs-11); color: var(--text-3);
+  overflow-wrap: anywhere;
+}
+.ne-fields { display: grid; gap: 10px; }
+.ne-field { display: grid; gap: 5px; }
+.ne-label { font-size: var(--fs-12); font-weight: 600; color: var(--text-2); }
+.ne-input {
+  width: 100%; min-height: 36px; padding: 7px 10px;
+  border: 1px solid var(--border); border-radius: var(--r-sm);
+  background: var(--bg-field); color: var(--text-1);
+  font: inherit; font-size: var(--fs-13);
+}
+.ne-input:focus { outline: none; border-color: var(--border-focus); }
+.ne-input:disabled { opacity: .6; cursor: not-allowed; }
+textarea.ne-input { resize: vertical; min-height: 70px; line-height: 1.5; }
+.ne-hint, .ne-note { font-size: var(--fs-11); color: var(--text-3); line-height: 1.5; }
+.ne-note { margin: 0; padding-top: 8px; border-top: 1px solid var(--border); }

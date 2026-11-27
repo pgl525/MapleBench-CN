@@ -3,6 +3,7 @@ import { el, clear, toast, toastError, fmt, modal, debounce, runOnce, busyWhile,
 import { emptyState } from './inspector.js';
 import { icon } from './icons.js';
 import { fieldLabel } from './fieldLabels.js';
+import { nameEditButton } from './nameEditor.js'; // 20261127pan修改：编辑器内直接改名称
 
 /**
  * Items section, in the same shape as the Mob editor: a card grid over the
@@ -451,7 +452,14 @@ export class ItemSection {
           class: 'item-row-title', text: item.name || `物品 ${item.itemId}`,
           'data-tip': '打开此物品',
           onclick: (event) => { event.stopPropagation(); this.openItemCard(item, event.currentTarget); },
-        })),
+        }),
+        // 20261127pan修改：名称按钮旁直接改 String.wz 名称
+        nameEditButton({ kind: 'item', id: item.itemId, label: '物品', app: this.app,
+          enabled: this.capabilities.names !== false,
+          onSaved: (entry) => {
+            if (entry?.fields?.name) item.name = entry.fields.name;
+            this.renderResults();
+          } })),
       el('span', { class: 'item-col item-col-cat' },
         el('span', { class: 'item-flag', text: categoryLabel(item.category) })),
       el('span', { class: 'item-col item-col-series', text: item.series }),
@@ -801,9 +809,24 @@ export class ItemSection {
 
   buildDetailHead(ctx) {
     const item = ctx.item;
+    const nameEl = el('div', { class: 'mob-detail-name', text: item.name || `物品 ${item.itemId}` });
     return el('div', { class: 'mob-detail-head' },
       el('div', {},
-        el('div', { class: 'mob-detail-name', text: item.name || `物品 ${item.itemId}` }),
+        el('div', { class: 'ne-detail-name-row' },
+          nameEl,
+        // 20261127pan修改：详情里也能直接改名称
+        nameEditButton({ kind: 'item', id: item.itemId, label: '物品', app: this.app,
+          enabled: this.capabilities.names !== false,
+          onSaved: (entry) => {
+            const next = entry?.fields?.name;
+            if (!next) return;
+            item.name = next;
+            if (ctx.detail) ctx.detail.name = next;
+            nameEl.textContent = next;
+            const title = nameEl.closest('dialog')?.querySelector('.modal-title');
+            if (title) title.textContent = next;
+            this.renderResults();
+          } })),
         el('div', { class: 'mob-sub', text: `ID ${item.itemId} · ${categoryLabel(item.category)} / ${item.series}` })),
       item.dirty ? el('span', { class: 'mob-badge', 'data-kind': 'dirty', text: '未保存' }) : null,
       el('span', { style: 'margin-left:auto' }),

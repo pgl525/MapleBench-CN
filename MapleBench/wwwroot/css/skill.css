@@ -598,3 +598,8 @@ td[data-source="needs"] { background: color-mix(in srgb, var(--amber-tint) 45%, 
    invisibility would hide the number that explains why it was skipped. */
 .sk-preview tr[data-skipped="true"] td { background: var(--bg-sunken); color: var(--text-3); }
 .sk-preview tr[data-skipped="true"] .sk-preview-name { color: var(--text-3); }
+
+/* 20261127pan修改：hs 单元格并排放 key 输入框与“改字符串”按钮 */
+.sk-cell-with-string { display: flex; align-items: center; gap: 2px; }
+.sk-cell-with-string .sk-input { flex: 1 1 auto; min-width: 0; }
+.sk-cell-with-string .ne-edit-btn { flex: 0 0 auto; }
